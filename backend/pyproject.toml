@@ -1,0 +1,21 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "Domain layer performs no I/O and depends on nothing above it"
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = ["app.api", "app.services", "app.db", "app.core.config"]
+
+[[tool.importlinter.contracts]]
+name = "Layering: api -> services -> db"
+type = "layers"
+layers = ["app.api", "app.services", "app.db"]

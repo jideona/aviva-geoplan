@@ -1,0 +1,5 @@
+# Core dependencies for the offline building detector (detect_buildings.py).
+# Install into a native arm64 venv on your Mac — NOT into the API container.
+requests>=2.31
+numpy>=1.26
+opencv-python-headless>=4.9

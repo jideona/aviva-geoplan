@@ -1,0 +1,23 @@
+[build]
+  command = "npm install && npm run build:web"
+  publish = "dist"
+
+# Also covered by public/_redirects (copied straight into dist/), which is
+# what actually applies on a drag-and-drop Netlify Drop deploy — this block
+# only matters if the site is later connected via git or the Netlify CLI.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Never let a stale cached service worker or index.html get stuck on a
+# phone — both need to be re-fetched every load so app updates land.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"

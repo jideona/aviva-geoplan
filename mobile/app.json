@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "Aviva GeoPlan Survey",
+    "slug": "aviva-geoplan-survey",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "primaryColor": "#0D1B4B",
+    "icon": "./assets/icon.png",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ng.com.avivanetworx.geoplan.survey",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Used to record the GPS position of surveyed assets.",
+        "NSCameraUsageDescription": "Used to photograph and record video of assets during survey.",
+        "NSMicrophoneUsageDescription": "Used to record audio when capturing video of assets during survey.",
+        "NSPhotoLibraryUsageDescription": "Used to attach photos and videos to survey records."
+      }
+    },
+    "android": {
+      "package": "ng.com.avivanetworx.geoplan.survey",
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_FINE_LOCATION", "CAMERA", "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0D1B4B"
+      },
+      "config": {
+        "googleMaps": { "apiKey": "REPLACE_WITH_ANDROID_GOOGLE_MAPS_API_KEY" }
+      }
+    },
+    "plugins": [
+      "expo-location",
+      "expo-image-picker",
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Aviva GeoPlan uses Face ID to quickly unlock the app after you've already signed in."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#0D1B4B"
+        }
+      ]
+    ],
+    "web": {
+      "bundler": "metro",
+      "favicon": "./public/favicon.png",
+      "themeColor": "#0D1B4B",
+      "backgroundColor": "#0D1B4B",
+      "name": "Aviva GeoPlan Survey",
+      "shortName": "GeoPlan Survey",
+      "display": "standalone",
+      "lang": "en"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_AFTER_EAS_INIT"
+      }
+    }
+  }
+}

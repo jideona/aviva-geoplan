@@ -1,0 +1,12 @@
+# Optional GIS / AI extras for future detectors (poles, manholes, roads) and
+# for post-processing detections. NOT needed to run detect_buildings.py.
+#   pip install -r tools/requirements-extra.txt
+#
+# Note: geopandas and rasterio pull in GDAL and are heavier to build on macOS.
+# Install them only when you actually need them.
+shapely>=2.0
+pyproj>=3.6
+mercantile>=1.2
+tqdm>=4.66
+# geopandas>=1.0
+# rasterio>=1.3

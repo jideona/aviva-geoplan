@@ -1,0 +1,36 @@
+.env
+.env.local
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+data/
+uploads/
+*.gpkg
+*.tif
+*.mbtiles
+*.pmtiles
+*.osm.pbf
+.DS_Store
+.idea/
+.vscode/
+
+# Generated / bulky project data
+source-data/existing_network_survey/photos/
+tools/outputs/*.geojson
+!tools/outputs/.gitkeep
+
+# Generated / bulky project data
+source-data/existing_network_survey/photos/
+tools/outputs/*.geojson
+!tools/outputs/.gitkeep
+
+# Backup and temp files
+*.bak

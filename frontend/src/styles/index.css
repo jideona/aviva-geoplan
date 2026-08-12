@@ -1,0 +1,24 @@
+@import 'maplibre-gl/dist/maplibre-gl.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply font-sans text-navy bg-white antialiased; }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md px-4 py-2 text-sm
+           font-medium transition disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary { @apply btn bg-brand text-white hover:bg-navy-mid; }
+  .btn-ghost   { @apply btn border border-pale text-navy hover:bg-lightgrey; }
+  .field {
+    @apply w-full rounded-md border border-pale px-3 py-2 text-sm
+           focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand;
+  }
+  .label { @apply block font-mono text-[11px] uppercase tracking-wide text-brand mb-1; }
+  .card  { @apply rounded-lg border border-pale bg-white; }
+  .badge { @apply inline-block rounded px-2 py-0.5 font-mono text-[11px] uppercase; }
+}

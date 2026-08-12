@@ -1,0 +1,17 @@
+{
+  "name": "Aviva GeoPlan Survey",
+  "short_name": "GeoPlan Survey",
+  "description": "Offline-first field survey app — capture manholes, buildings and cable routes with GPS.",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0D1B4B",
+  "theme_color": "#0D1B4B",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
