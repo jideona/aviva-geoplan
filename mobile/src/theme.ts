@@ -19,6 +19,13 @@ export const COLOR = {
   text500: '#6B7280',
   borderDefault: '#D0D5DD',
   error: '#D92D20',      // Defined error red — never reuse orange for errors (Vol.2 §03)
+  // Added for the redesign's KPI/progress-ring cards — a lighter hairline
+  // and ring-track tint than borderDefault/surface100 above, which are for
+  // form fields, not cards (Vol.2 §01 amendment).
+  borderCard: '#E4E8EE',
+  neutralTint: '#EEF0F2',
+  alertTint: '#FDECE5',    // orange-status pill/tile fill
+  alertBorder: '#F7C9B4',  // orange-status tile border
 } as const;
 
 // Dark mode (Vol.2 §01) — not wired up in the app shell yet (no theme

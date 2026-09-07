@@ -15,7 +15,7 @@
 // "clear distinction between them" instruction instead of the mockup's own
 // circle/square convention — see pinStatus.ts.
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image, TextInput, ScrollView, Animated, Easing } from 'react-native';
 import {
   Map as MaplibreMap, Marker, GeolocateControl,
   type MapMouseEvent, type StyleSpecification, type GeoJSONSource,
@@ -29,7 +29,7 @@ import {
   deleteAsset, deleteOutbox, updateAssetPosition, updateOutboxPayload,
 } from '../db';
 import { authed } from '../auth';
-import { COLOR, SPACE, RADIUS, ELEVATION, STATUS, MIN_TOUCH } from '../theme';
+import { COLOR, SPACE, RADIUS, ELEVATION, STATUS, MIN_TOUCH, FONT } from '../theme';
 import { SecondaryFab } from '../components/Fab';
 import { pinStatus, pinShape, type PinStatusName } from '../pinStatus';
 
@@ -215,20 +215,22 @@ function ensurePulseStyle() {
   const style = document.createElement('style');
   style.id = PULSE_STYLE_ID;
   style.textContent = `
-    .gp-pulse-marker { width: 20px; height: 20px; position: relative; }
+    .gp-pulse-marker { width: 16px; height: 16px; position: relative; }
     .gp-pulse-marker::before, .gp-pulse-marker::after {
       content: ''; position: absolute; inset: 0; border-radius: 9999px;
       background: ${COLOR.primary500};
     }
     .gp-pulse-marker::before {
-      box-shadow: 0 0 0 3px #fff, 0 2px 6px rgba(13,27,75,0.35);
+      box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(13,27,75,0.35);
     }
     .gp-pulse-marker::after {
+      inset: -14px;
+      opacity: 0.3;
       animation: gp-pulse 1.8s ease-out infinite;
     }
     @keyframes gp-pulse {
-      0% { transform: scale(1); opacity: 0.55; }
-      100% { transform: scale(2.6); opacity: 0; }
+      0% { transform: scale(0.6); opacity: 0.55; }
+      100% { transform: scale(2.2); opacity: 0; }
     }
   `;
   document.head.appendChild(style);
@@ -291,8 +293,10 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [showNetwork, setShowNetwork] = useState(false);
   const [showSatellite, setShowSatellite] = useState(false);
+  const [showBuildings, setShowBuildings] = useState(false);
   const [networkLoaded, setNetworkLoaded] = useState(false);
   const [networkFeatureCount, setNetworkFeatureCount] = useState(0);
+  const [buildingsLoaded, setBuildingsLoaded] = useState(false);
   const [pendingCondition, setPendingCondition] = useState<string | null>(null);
   const [inspect, setInspect] = useState<{
     clientId: string; label: string; status: PinStatusName; condition?: string;
@@ -318,6 +322,27 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   // instead of savePin() and skips the condition picker.
   const [editing, setEditing] = useState<{ clientId: string; synced: boolean } | null>(null);
 
+  // Tapped building footprint on the map (see the 'buildings' source/layer
+  // below) — a surveyor-facing edit form for the same PATCH BuildingScreen's
+  // GPS-list flow already sends, plus "doesn't exist" (excludes it). Kept
+  // separate from `inspect` since buildings are pre-existing office-imported
+  // records being field-updated, not a surveyor-created point asset.
+  const [buildingEdit, setBuildingEdit] = useState<{
+    id: string; code: string | null; buildingType: string; address: string;
+    units: string; drop: 'aerial' | 'underground' | ''; notes: string;
+    lat: number; lon: number;
+  } | null>(null);
+  const [savingBuilding, setSavingBuilding] = useState(false);
+  // Measured height of the white bottom panel (segmented pill + record
+  // button) — the attribution strip is pinned just above it rather than
+  // literally 8px from the screen edge, which the opaque panel would hide.
+  const [panelHeight, setPanelHeight] = useState(160);
+  // Pulses the record button's orange dot while recording — the button
+  // itself stays navy throughout (Vol.4.1 §10 / doc §3: orange is reserved
+  // for the record indicator and attention pins, never a full navy->orange
+  // button swap).
+  const recordPulse = useRef(new Animated.Value(1)).current;
+
   // A fresh tap (new pin) or leaving placement mode always starts the
   // condition choice over — otherwise a leftover selection from a previous
   // drop could get saved against a pin the surveyor never actually reviewed.
@@ -325,6 +350,18 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const stopRef = useRef<null | (() => void)>(null);
   const modeRef = useRef<Mode>('none');
   useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  useEffect(() => {
+    if (!recording) { recordPulse.setValue(1); return; }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(recordPulse, { toValue: 0.25, duration: 700, easing: Easing.ease, useNativeDriver: true }),
+        Animated.timing(recordPulse, { toValue: 1, duration: 700, easing: Easing.ease, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [recording]);
 
   async function reload() {
     const all = await listAssets();
@@ -420,6 +457,24 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     })();
   }, [ready, projectId, networkLoaded]);
 
+  // Building footprints — the same polygons the office map shows, fetched
+  // read-only (no Permission.BUILDING_EDIT required, just project
+  // membership — see features.py's buildings_geojson) so a surveyor can tap
+  // one directly instead of hunting a GPS-proximity list. Hidden by default,
+  // like the network layer, and loaded once per project.
+  useEffect(() => {
+    if (!ready || !projectId || buildingsLoaded) return;
+    (async () => {
+      try {
+        const res = await authed(`/api/v1/projects/${projectId}/buildings.geojson`);
+        const fc = res.ok ? await res.json() : { type: 'FeatureCollection', features: [] };
+        const src = mapRef.current?.getSource('buildings') as GeoJSONSource | undefined;
+        src?.setData(fc as any);
+        setBuildingsLoaded(true);
+      } catch { /* no connection — leave the layer empty, toggle stays usable */ }
+    })();
+  }, [ready, projectId, buildingsLoaded]);
+
   // Create the map once we have a starting position.
   useEffect(() => {
     if (!start || !containerRef.current || mapRef.current) return;
@@ -428,6 +483,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       style: STYLE,
       center: [start.lon, start.lat],
       zoom: 18,
+      attributionControl: false,
     });
 
     // GeolocateControl is kept (for permission + tracking + its 'geolocate'
@@ -512,7 +568,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         id: 'recording', type: 'line', source: 'recording',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         // Dashed while still being recorded — solid once saved (routes layer above).
-        paint: { 'line-width': 5, 'line-color': COLOR.primary500, 'line-dasharray': [2, 2] },
+        paint: { 'line-width': 3, 'line-color': COLOR.primary500, 'line-dasharray': [2, 2] },
       });
 
       // Network design reference layer (FAT/FDH) — hollow rings, deliberately
@@ -561,6 +617,21 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           visibility: 'none', 'icon-image': 'house-noc',
           'icon-size': zoomSize(1.4), 'icon-allow-overlap': true,
         },
+      });
+
+      // Building footprints — tap-to-select for field updates (terrace/unit
+      // count, "doesn't exist") instead of only the GPS-proximity list.
+      // Hidden by default, toggled via the layers FAB, same as network above.
+      map.addSource('buildings', { type: 'geojson', data: emptyFC() });
+      map.addLayer({
+        id: 'buildings-fill', type: 'fill', source: 'buildings',
+        layout: { visibility: 'none' },
+        paint: { 'fill-color': COLOR.primary500, 'fill-opacity': 0.15 },
+      });
+      map.addLayer({
+        id: 'buildings-line', type: 'line', source: 'buildings',
+        layout: { visibility: 'none' },
+        paint: { 'line-color': COLOR.primary900, 'line-width': 1.25 },
       });
 
       setReady(true);
@@ -625,6 +696,28 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     });
     map.on('mouseenter', 'building-photos', () => { if (modeRef.current === 'none') map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'building-photos', () => { map.getCanvas().style.cursor = ''; });
+
+    // Tap a building footprint to edit its surveyed attributes (or flag it
+    // as not existing) directly, rather than only via the GPS-proximity
+    // list in the separate Building capture form.
+    map.on('click', 'buildings-fill', (e: MapMouseEvent & { features?: GeoJSON.Feature[] }) => {
+      if (modeRef.current !== 'none') return;
+      const f = e.features?.[0];
+      if (!f) return;
+      const p = f.properties ?? {};
+      if (!p.building_id) return;
+      setBuildingEdit({
+        id: p.building_id, code: p.code ?? null,
+        buildingType: p.building_type || 'residential',
+        address: p.address || '',
+        units: p.units_surveyed ? String(p.units_surveyed) : '',
+        drop: (p.drop_deployment as any) || '',
+        notes: p.notes || '',
+        lat: e.lngLat.lat, lon: e.lngLat.lng,
+      });
+    });
+    map.on('mouseenter', 'buildings-fill', () => { if (modeRef.current === 'none') map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'buildings-fill', () => { map.getCanvas().style.cursor = ''; });
 
     geolocate.on('geolocate', (e: any) => {
       if (e?.coords) setUserFix({ lat: e.coords.latitude, lon: e.coords.longitude });
@@ -871,6 +964,63 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     map.setLayoutProperty('satellite', 'visibility', next ? 'visible' : 'none');
   }
 
+  function toggleBuildings() {
+    const map = mapRef.current;
+    if (!map) return;
+    const next = !showBuildings;
+    if (next && !projectId) {
+      notify('Buildings layer', 'Select a project first.');
+    } else if (next && !buildingsLoaded) {
+      notify('Buildings layer', "Still loading — try again in a moment, or check you're online.");
+    }
+    setShowBuildings(next);
+    (['buildings-fill', 'buildings-line'] as const).forEach((id) =>
+      map.setLayoutProperty(id, 'visibility', next ? 'visible' : 'none'));
+  }
+
+  async function saveBuildingEdit() {
+    if (!buildingEdit) return;
+    setSavingBuilding(true);
+    try {
+      const attrs: any = { building_type: buildingEdit.buildingType };
+      if (buildingEdit.address) attrs.address = buildingEdit.address;
+      if (buildingEdit.units) attrs.units_surveyed = parseInt(buildingEdit.units, 10);
+      if (buildingEdit.drop) attrs.drop_deployment = buildingEdit.drop;
+      if (buildingEdit.notes) attrs.notes = buildingEdit.notes;
+      const clientId = newId('bld');
+      await saveAsset({
+        clientId, kind: 'building', lat: buildingEdit.lat, lon: buildingEdit.lon,
+        accuracy: 0, label: buildingEdit.code || 'Unnumbered', sub: buildingEdit.buildingType,
+      });
+      await enqueue({ clientId, kind: 'building', payload: { buildingId: buildingEdit.id, attrs } });
+      setBuildingEdit(null);
+      notify('Building updated', "Saved on this device — will sync next time you're online.");
+    } finally { setSavingBuilding(false); }
+  }
+
+  async function flagBuildingNotExisting() {
+    if (!buildingEdit) return;
+    const ok = await confirmAction(
+      `Flag "${buildingEdit.code || 'this building'}" as not existing?`,
+      "This removes it from the map and any network design — a manager can restore it from the office app if it's a mistake.");
+    if (!ok) return;
+    setSavingBuilding(true);
+    try {
+      const clientId = newId('bld');
+      await saveAsset({
+        clientId, kind: 'building', lat: buildingEdit.lat, lon: buildingEdit.lon,
+        accuracy: 0, label: buildingEdit.code || 'Unnumbered', sub: 'flagged: does not exist',
+      });
+      await enqueue({
+        clientId, kind: 'building_exclude',
+        payload: { buildingId: buildingEdit.id,
+                  reason: 'Surveyor: footprint does not exist on the ground.' },
+      });
+      setBuildingEdit(null);
+      notify('Flagged', "Marked as not existing — will sync next time you're online.");
+    } finally { setSavingBuilding(false); }
+  }
+
   // Tapping the already-active mode again turns placement back off — the
   // redesign's 2-way pill (Drop Manhole | Drop Handhole) has no separate
   // "Off" segment, so toggle-off-on-repeat-tap is how you back out of it.
@@ -1022,6 +1172,71 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         </View>
       )}
 
+      {/* Tapped building footprint — field-update the surveyed attributes the
+          office app's building_edit_service already accepts (type, unit
+          count, address, drop deployment), or flag the footprint as not
+          existing. Taller than the other sheets, so it scrolls internally
+          rather than running off the top of a small screen. */}
+      {buildingEdit && (
+        <View style={[s.sheet, s.sheetTall]}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={s.sheetTitle}>{buildingEdit.code || 'Building'}</Text>
+            <Text style={s.sheetCoord}>{buildingEdit.lat.toFixed(6)}, {buildingEdit.lon.toFixed(6)}</Text>
+
+            <Text style={s.beLabel}>Type</Text>
+            <View style={s.condRow}>
+              {['residential', 'terrace', 'commercial', 'mixed_use', 'institutional', 'religious', 'other'].map((t) => (
+                <TouchableOpacity key={t} disabled={savingBuilding}
+                  onPress={() => setBuildingEdit((b) => b && { ...b, buildingType: t })}
+                  style={[s.cond, buildingEdit.buildingType === t && s.condSelected]}>
+                  <Text style={[s.condText, buildingEdit.buildingType === t && s.condTextSelected]}>
+                    {t.replace('_', ' ')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {buildingEdit.buildingType === 'terrace' && (
+              <Text style={s.beHint}>
+                Row of terraces — set the number of units below so the auto drop
+                deployment plans one drop per unit, not one for the whole row.
+              </Text>
+            )}
+
+            <Text style={s.beLabel}>Number of units</Text>
+            <TextInput style={s.beInput} keyboardType="number-pad" placeholder="e.g. 6"
+              placeholderTextColor={COLOR.text500} value={buildingEdit.units}
+              onChangeText={(v) => setBuildingEdit((b) => b && { ...b, units: v })} />
+
+            <Text style={s.beLabel}>Address</Text>
+            <TextInput style={s.beInput} placeholder="Street address" placeholderTextColor={COLOR.text500}
+              value={buildingEdit.address} onChangeText={(v) => setBuildingEdit((b) => b && { ...b, address: v })} />
+
+            <Text style={s.beLabel}>Drop deployment</Text>
+            <View style={s.condRow}>
+              {(['aerial', 'underground'] as const).map((d) => (
+                <TouchableOpacity key={d} disabled={savingBuilding}
+                  onPress={() => setBuildingEdit((b) => b && { ...b, drop: b.drop === d ? '' : d })}
+                  style={[s.cond, buildingEdit.drop === d && s.condSelected]}>
+                  <Text style={[s.condText, buildingEdit.drop === d && s.condTextSelected]}>{d}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity style={[s.save, savingBuilding && { opacity: 0.6 }]}
+              disabled={savingBuilding} onPress={saveBuildingEdit}>
+              {savingBuilding ? <ActivityIndicator color="#fff" /> : <Text style={s.saveText}>Save changes</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.inspectBtn, { backgroundColor: COLOR.error, marginTop: SPACE.sm }]}
+              disabled={savingBuilding} onPress={flagBuildingNotExisting}>
+              <Text style={[s.inspectBtnText, { color: '#fff' }]}>This building doesn't exist</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setBuildingEdit(null)} disabled={savingBuilding}>
+              <Text style={s.cancel}>Close</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      )}
+
       {/* Recording banner */}
       {recording && (
         <View style={s.recBanner}>
@@ -1037,6 +1252,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       {/* Top-right FAB stack — zoom/recenter/layers (not shown in the
           redesign comp, additive and non-conflicting with it). */}
       <View style={s.fabStack}>
+        <SecondaryFab icon="▧" active={showBuildings} onPress={toggleBuildings} />
         <SecondaryFab icon="▦" active={showNetwork} onPress={toggleNetwork} />
         <SecondaryFab icon="◐" active={showSatellite} onPress={toggleSatellite} />
         <SecondaryFab icon="+" onPress={() => mapRef.current?.zoomIn()} />
@@ -1046,7 +1262,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
 
       {/* Bottom panel — 2-way segmented Manhole/Handhole toggle + full-width
           Record Route button, per the redesign's screen 3. */}
-      <View style={s.bottomPanel}>
+      <View style={s.bottomPanel} onLayout={(e) => setPanelHeight(e.nativeEvent.layout.height)}>
         <View style={s.assetPillRow}>
           <TouchableOpacity style={[s.assetPill, mode === 'manhole' && s.assetPillActive]}
             onPress={() => setAssetMode('manhole')}>
@@ -1063,10 +1279,27 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             <Text style={s.recordText}>Start Recording Route</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={[s.recordBtn, { backgroundColor: COLOR.error }]} onPress={stopRecord} disabled={busy}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.recordText}>Stop & save route</Text>}
+          <TouchableOpacity style={s.recordBtn} onPress={stopRecord} disabled={busy}>
+            {busy
+              ? <ActivityIndicator color="#fff" />
+              : <Animated.View style={[s.recordDot, { opacity: recordPulse }]} />}
+            <Text style={s.recordText}>{busy ? 'Saving…' : 'Stop Recording'}</Text>
           </TouchableOpacity>
         )}
+      </View>
+
+      {/* Attribution strip — a licence requirement for the OSM/CARTO tiles
+          (and Esri's when satellite is toggled on), so it's real provider
+          text rather than the doc's placeholder string, styled per §3:
+          centred, Space Mono, muted. Pinned just above the bottom panel
+          (measured via onLayout above) since that opaque panel would
+          otherwise cover a literal "8px from the screen bottom" position. */}
+      <View style={[s.attribution, { bottom: panelHeight + 8 }]} pointerEvents="none">
+        <Text style={s.attributionText} numberOfLines={1}>
+          {showSatellite
+            ? 'MAP DATA © ESRI, MAXAR, EARTHSTAR GEOGRAPHICS'
+            : 'MAP DATA © OPENSTREETMAP CONTRIBUTORS © CARTO'}
+        </Text>
       </View>
     </View>
   );
@@ -1082,7 +1315,7 @@ const s = StyleSheet.create({
   fabStack: { position: 'absolute', top: SAFE_TOP as any, right: SPACE.md, alignItems: 'flex-end', gap: SPACE.sm + 2 },
   bottomPanel: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: COLOR.surface0, borderTopWidth: 1, borderTopColor: COLOR.borderDefault, padding: SPACE.md - 2, paddingBottom: SPACE.lg - 2 },
   assetPillRow: { flexDirection: 'row', gap: 6, backgroundColor: COLOR.surface100, borderRadius: RADIUS.full, padding: 6, marginBottom: SPACE.sm + 4 },
-  assetPill: { flex: 1, minHeight: MIN_TOUCH - 4, borderRadius: RADIUS.full, alignItems: 'center', justifyContent: 'center' },
+  assetPill: { flex: 1, minHeight: MIN_TOUCH, borderRadius: RADIUS.full, alignItems: 'center', justifyContent: 'center' },
   assetPillActive: { backgroundColor: COLOR.surface0, ...ELEVATION[1] },
   assetPillText: { fontSize: 13, fontWeight: '700', color: COLOR.text500 },
   assetPillTextActive: { color: COLOR.text900 },
@@ -1095,6 +1328,10 @@ const s = StyleSheet.create({
   recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLOR.error, marginRight: SPACE.sm },
   recText: { color: COLOR.text900, fontWeight: '600' },
   sheet: { position: 'absolute', bottom: 150, left: SPACE.md, right: SPACE.md, backgroundColor: COLOR.surface0, borderRadius: RADIUS.lg, padding: SPACE.md, ...ELEVATION[4] },
+  sheetTall: { maxHeight: '65vh' as any, overflow: 'hidden' as any },
+  beLabel: { fontSize: 13, color: COLOR.text500, marginBottom: 6, marginTop: SPACE.sm + 2 },
+  beInput: { backgroundColor: COLOR.surface100, borderRadius: RADIUS.sm, padding: 10, borderWidth: 1, borderColor: COLOR.borderDefault, color: COLOR.text900, minHeight: MIN_TOUCH - 4 },
+  beHint: { color: COLOR.text500, fontSize: 12, marginTop: 6 },
   sheetTitle: { fontWeight: '700', color: COLOR.text900, fontSize: 15 },
   sheetCoord: { color: COLOR.text500, marginTop: 2 },
   sheetHint: { color: COLOR.text500, fontSize: 12, marginTop: 4, marginBottom: SPACE.sm + 2 },
@@ -1116,4 +1353,6 @@ const s = StyleSheet.create({
   netLabel: { color: COLOR.text500, fontSize: 13 },
   netValue: { color: COLOR.text900, fontWeight: '600', fontSize: 13 },
   cancel: { color: COLOR.primary700, textAlign: 'center', marginTop: SPACE.sm + 4 },
+  attribution: { position: 'absolute', left: 0, right: 0, alignItems: 'center', paddingHorizontal: SPACE.md },
+  attributionText: { fontFamily: FONT.mono, fontSize: 10, lineHeight: 12, color: COLOR.text500 },
 });

@@ -17,6 +17,7 @@ export default function LoginScreen({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [online, setOnline] = useState(true);
+  const [focus, setFocus] = useState<'email' | 'password' | null>(null);
 
   useEffect(() => {
     const unsub = NetInfo.addEventListener((st) => setOnline(!!st.isConnected));
@@ -51,22 +52,25 @@ export default function LoginScreen({ onDone }: { onDone: () => void }) {
 
       <View style={s.body}>
         <Text style={s.label}>Email</Text>
-        <TextInput style={s.input} placeholder="you@avivanetworx.com" placeholderTextColor={COLOR.text500}
+        <TextInput style={[s.input, focus === 'email' && s.inputFocused]}
+          placeholder="you@avivanetworx.com" placeholderTextColor={COLOR.text500}
           autoCapitalize="none" autoCorrect={false} keyboardType="email-address"
+          onFocus={() => setFocus('email')} onBlur={() => setFocus(null)}
           value={email} onChangeText={setEmail} />
 
         <Text style={s.label}>Password</Text>
-        <View style={s.passwordRow}>
+        <View style={[s.passwordRow, focus === 'password' && s.inputFocused]}>
           <TextInput style={s.passwordInput} placeholder="········" placeholderTextColor={COLOR.text500}
-            secureTextEntry={!showPassword} value={password} onChangeText={setPassword} />
-          <TouchableOpacity style={s.eyeBtn} onPress={() => setShowPassword((v) => !v)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            secureTextEntry={!showPassword} value={password} onChangeText={setPassword}
+            onFocus={() => setFocus('password')} onBlur={() => setFocus(null)} />
+          <TouchableOpacity style={s.eyeBtn} onPress={() => setShowPassword((v) => !v)}>
             <Text style={s.eyeText}>{showPassword ? 'Hide' : 'Show'}</Text>
           </TouchableOpacity>
         </View>
 
         <TouchableOpacity style={s.forgotRow}
-          onPress={() => notify('Forgot password', 'Password resets aren’t self-service yet — contact your field coordinator to have it reset.')}>
+          onPress={() => notify('Forgot password', 'Password resets aren’t self-service yet — contact your field coordinator to have it reset.')}
+          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}>
           <Text style={s.forgotText}>Forgot password?</Text>
         </TouchableOpacity>
 
@@ -88,7 +92,7 @@ export default function LoginScreen({ onDone }: { onDone: () => void }) {
           </View>
         )}
 
-        <TouchableOpacity onPress={() => setShowServer((v) => !v)} style={{ marginTop: SPACE.lg }}>
+        <TouchableOpacity onPress={() => setShowServer((v) => !v)} style={{ marginTop: SPACE.lg, minHeight: MIN_TOUCH, justifyContent: 'center' }}>
           <Text style={s.serverToggle}>{showServer ? 'Hide server settings' : 'Server settings'}</Text>
         </TouchableOpacity>
         {showServer && (
@@ -122,8 +126,9 @@ const s = StyleSheet.create({
   label: { ...TYPE.mono, fontSize: 11, letterSpacing: 1, color: COLOR.text500, textTransform: 'uppercase', marginBottom: SPACE.xs + 2, marginTop: SPACE.md - 4 },
   input: { ...TYPE.body, backgroundColor: COLOR.surface0, borderRadius: RADIUS.sm, padding: SPACE.md - 4, borderWidth: 1, borderColor: COLOR.borderDefault, color: COLOR.text900, minHeight: MIN_TOUCH },
   passwordRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLOR.surface0, borderRadius: RADIUS.sm, borderWidth: 1, borderColor: COLOR.borderDefault, minHeight: MIN_TOUCH },
+  inputFocused: { borderColor: COLOR.primary500, shadowColor: COLOR.primary500, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.12, shadowRadius: 2, elevation: 0 },
   passwordInput: { ...TYPE.body, flex: 1, padding: SPACE.md - 4, color: COLOR.text900 },
-  eyeBtn: { paddingHorizontal: SPACE.md - 4 },
+  eyeBtn: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.sm },
   eyeText: { ...TYPE.small, fontWeight: '700', color: COLOR.primary700 },
   forgotRow: { alignSelf: 'flex-end', marginTop: SPACE.sm, marginBottom: SPACE.md },
   forgotText: { ...TYPE.small, fontWeight: '500', color: COLOR.primary700 },

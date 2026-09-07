@@ -15,6 +15,11 @@ export async function initDb() {
       parent_client_id TEXT,          -- media -> its asset's client_id
       status TEXT NOT NULL DEFAULT 'pending',   -- pending|syncing|done|error
       error TEXT,
+      -- Set only for a media op that finished uploading (the actual byte
+      -- size the sync engine already measures via fileBlob.size before
+      -- discarding it) — lets the Uploaded Data screen show real "GB
+      -- uploaded" instead of a placeholder.
+      bytes INTEGER,
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS assets (
@@ -35,6 +40,16 @@ export async function initDb() {
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+    -- Local-only, never synced: an in-progress Update Building form the
+    -- surveyor chose to save without submitting (redesign's "Save draft" /
+    -- "Resume draft"). Keyed by building_id so there's at most one draft
+    -- per building — picking it again just resumes/overwrites the draft.
+    CREATE TABLE IF NOT EXISTS drafts (
+      building_id TEXT PRIMARY KEY,
+      code TEXT,
+      attrs TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -75,6 +90,7 @@ export function newId(prefix: string): string {
 export type OutboxRow = {
   client_id: string; kind: string; payload: string;
   parent_client_id: string | null; status: string; error: string | null;
+  bytes: number | null;
   created_at: string;
 };
 
@@ -101,14 +117,51 @@ export async function saveAsset(a: {
   );
 }
 
+export async function saveDraft(d: { buildingId: string; code: string | null; attrs: any }) {
+  await conn().runAsync(
+    `INSERT OR REPLACE INTO drafts (building_id, code, attrs, updated_at) VALUES (?, ?, ?, ?)`,
+    [d.buildingId, d.code ?? null, JSON.stringify(d.attrs), new Date().toISOString()]
+  );
+}
+
+export async function listDrafts(): Promise<{ building_id: string; code: string | null; attrs: string; updated_at: string }[]> {
+  return conn().getAllAsync(`SELECT * FROM drafts ORDER BY updated_at DESC`);
+}
+
+export async function getDraft(buildingId: string) {
+  return conn().getFirstAsync<{ building_id: string; code: string | null; attrs: string; updated_at: string }>(
+    `SELECT * FROM drafts WHERE building_id = ?`, [buildingId]);
+}
+
+export async function deleteDraft(buildingId: string) {
+  await conn().runAsync(`DELETE FROM drafts WHERE building_id = ?`, [buildingId]);
+}
+
 export async function pending(): Promise<OutboxRow[]> {
   return conn().getAllAsync<OutboxRow>(
     `SELECT * FROM outbox WHERE status IN ('pending','error') ORDER BY created_at`);
 }
 
-export async function setStatus(clientId: string, status: string, error?: string) {
-  await conn().runAsync(`UPDATE outbox SET status = ?, error = ? WHERE client_id = ?`,
-    [status, error ?? null, clientId]);
+// Every outbox row regardless of status — the Uploaded Data screen's ledger
+// (pending() above deliberately excludes 'done' rows, since the sync engine
+// only needs the unfinished ones).
+export async function listAllOutbox(): Promise<OutboxRow[]> {
+  return conn().getAllAsync<OutboxRow>(`SELECT * FROM outbox ORDER BY created_at DESC LIMIT 1000`);
+}
+
+export async function setStatus(clientId: string, status: string, error?: string, bytes?: number) {
+  await conn().runAsync(`UPDATE outbox SET status = ?, error = ?, bytes = COALESCE(?, bytes) WHERE client_id = ?`,
+    [status, error ?? null, bytes ?? null, clientId]);
+}
+
+// Re-queues specific rows for the next flush() — "Retry upload" on a failed
+// batch, restricted to just its rejected records rather than everything
+// pending (flush() already replays 'error' rows too, but this also clears
+// the stale error message so a still-in-flight retry doesn't show it).
+export async function retryRows(clientIds: string[]) {
+  for (const id of clientIds) {
+    await conn().runAsync(`UPDATE outbox SET status = 'pending', error = NULL WHERE client_id = ?`, [id]);
+  }
 }
 
 export async function mapServerId(clientId: string, serverId: string) {

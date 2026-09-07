@@ -8,6 +8,7 @@ import { initDb, kvGet } from './src/db';
 import { loadApiBase } from './src/config';
 import { loadTokens, isAuthed } from './src/auth';
 import { isBiometricLockEnabled, hasBiometricHardware } from './src/biometrics';
+import { useAutoSync } from './src/autoSync';
 import SplashScreen from './src/screens/SplashScreen';
 import LockScreen from './src/screens/LockScreen';
 import LoginScreen from './src/screens/LoginScreen';
@@ -17,10 +18,11 @@ import ManholeScreen from './src/screens/ManholeScreen';
 import BuildingScreen from './src/screens/BuildingScreen';
 import BuildingPhotoScreen from './src/screens/BuildingPhotoScreen';
 import MapScreen from './src/screens/MapScreen';
+import UploadedDataScreen from './src/screens/UploadedDataScreen';
 import BottomSheet from './src/components/BottomSheet';
 import { COLOR } from './src/theme';
 
-type Screen = 'projects' | 'dashboard' | 'map';
+type Screen = 'projects' | 'dashboard' | 'map' | 'uploaded';
 type Sheet = 'manhole' | 'building' | 'building_photo' | null;
 
 // Keep the native splash (app.json's expo-splash-screen config) on screen
@@ -40,6 +42,10 @@ export default function App() {
   const [splashDone, setSplashDone] = useState(false);
   const [screen, setScreen] = useState<Screen>('projects');
   const [sheet, setSheet] = useState<Sheet>(null);
+  // Set by the Dashboard's "Resume draft" quick action, alongside opening
+  // the 'building' sheet — cleared whenever that sheet is opened normally
+  // or closed, so a stale target never lingers into the next open.
+  const [resumeDraft, setResumeDraft] = useState<{ buildingId: string; code: string | null } | null>(null);
   // null = not evaluated yet (stay on the boot spinner instead of flashing
   // real content before we know whether a lock applies); true/false once known.
   const [locked, setLocked] = useState<boolean | null>(null);
@@ -99,6 +105,13 @@ export default function App() {
 
   const ready = booted && fontsLoaded;
 
+  // Uploads queued captures the moment a connection is available, instead
+  // of waiting for the surveyor to open a screen and tap Sync now. Enabled
+  // for the lifetime of the login (not gated on the lock screen — a locked
+  // phone still has a live network connection and queued work worth
+  // sending), disabled again on logout.
+  useAutoSync(authed);
+
   async function afterLogin() {
     setAuthed(true);
     setLocked(false);
@@ -141,7 +154,9 @@ export default function App() {
           {screen === 'dashboard' && (
             <DashboardScreen
               onOpenMap={() => setScreen('map')}
-              onCapture={(kind) => setSheet(kind)}
+              onCapture={(kind) => { setResumeDraft(null); setSheet(kind); }}
+              onResumeDraft={(d) => { setResumeDraft(d); setSheet('building'); }}
+              onOpenUploadedData={() => setScreen('uploaded')}
               onSwitchProject={() => setScreen('projects')}
               onLogout={handleLogout}
               onBioLockChanged={(on) => { bioLockOnRef.current = on; }}
@@ -150,12 +165,19 @@ export default function App() {
           {screen === 'map' && (
             <MapScreen onBack={() => setScreen('dashboard')} />
           )}
+          {screen === 'uploaded' && (
+            <UploadedDataScreen onBack={() => setScreen('dashboard')} />
+          )}
 
           <BottomSheet visible={sheet === 'manhole'} onClose={() => setSheet(null)} title="Capture manhole">
             <ManholeScreen onSaved={() => setSheet(null)} />
           </BottomSheet>
-          <BottomSheet visible={sheet === 'building'} onClose={() => setSheet(null)} title="Update building">
-            <BuildingScreen onSaved={() => setSheet(null)} onCancel={() => setSheet(null)} />
+          <BottomSheet visible={sheet === 'building'} onClose={() => { setSheet(null); setResumeDraft(null); }} title="Update building">
+            <BuildingScreen
+              onSaved={() => { setSheet(null); setResumeDraft(null); }}
+              onCancel={() => { setSheet(null); setResumeDraft(null); }}
+              resume={resumeDraft}
+            />
           </BottomSheet>
           <BottomSheet visible={sheet === 'building_photo'} onClose={() => setSheet(null)} title="Building photo">
             <BuildingPhotoScreen onSaved={() => setSheet(null)} />

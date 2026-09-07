@@ -8,7 +8,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'rea
 import { authenticateBiometric, supportedTypeLabel } from '../biometrics';
 import { logout } from '../auth';
 import AvivaLogo from '../components/AvivaLogo';
-import { COLOR, SPACE, RADIUS, ELEVATION, TYPE } from '../theme';
+import { COLOR, SPACE, RADIUS, ELEVATION, TYPE, MIN_TOUCH } from '../theme';
 
 export default function LockScreen({ onUnlocked, onUsePassword }: {
   onUnlocked: () => void;
@@ -56,7 +56,8 @@ export default function LockScreen({ onUnlocked, onUsePassword }: {
       <TouchableOpacity style={s.unlockBtn} onPress={prompt} disabled={busy}>
         <Text style={s.unlockText}>Unlock with {label}</Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={usePasswordInstead} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+      <TouchableOpacity onPress={usePasswordInstead} hitSlop={{ top: 14, bottom: 14, left: 12, right: 12 }}
+        style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}>
         <Text style={s.passwordLink}>Use email and password instead</Text>
       </TouchableOpacity>
     </View>

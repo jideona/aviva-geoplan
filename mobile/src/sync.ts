@@ -5,9 +5,21 @@
 import { authed } from './auth';
 import { pending, setStatus, mapServerId, serverIdFor, markRouteSynced } from './db';
 
-export async function flush(projectId: string): Promise<{ done: number; failed: number }> {
-  const ops = await pending();
+export async function flush(projectId: string, opts?: {
+  // Fires after every processed op (success or failure) — the Uploaded
+  // Data screen's live per-batch progress bar streams from this instead of
+  // polling, since there's no other way to observe flush() mid-run.
+  onProgress?: (done: number, total: number) => void;
+  // Restricts this run to specific outbox rows — "Retry upload" on one
+  // failed batch, so it re-queues only that batch's rejected records
+  // rather than everything pending across the whole project.
+  onlyClientIds?: string[];
+}): Promise<{ done: number; failed: number }> {
+  const only = opts?.onlyClientIds ? new Set(opts.onlyClientIds) : null;
+  const ops = (await pending()).filter((op) => !only || only.has(op.client_id));
   let done = 0, failed = 0;
+  const total = ops.length;
+  const tick = () => opts?.onProgress?.(done + failed, total);
 
   // Pass 1 — parents.
   for (const op of ops) {
@@ -65,12 +77,23 @@ export async function flush(projectId: string): Promise<{ done: number; failed: 
         const res = await authed(
           `/api/v1/projects/${projectId}/mobile/manholes/${serverId}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(await msg(res));
+      } else if (op.kind === 'building_exclude') {
+        // Surveyor found the footprint doesn't exist on the ground — flag it
+        // (reversible from the office app), same PATCH the office "Remove
+        // building" action uses, just reached through the mobile-scoped
+        // endpoint field roles actually have permission to call.
+        const res = await authed(
+          `/api/v1/projects/${projectId}/mobile/buildings/${payload.buildingId}/exclude`, {
+            method: 'PATCH', body: JSON.stringify({ excluded: true, reason: payload.reason }),
+          });
+        if (!res.ok) throw new Error(await msg(res));
+        await mapServerId(op.client_id, payload.buildingId);
       }
       await setStatus(op.client_id, 'done');
-      done++;
+      done++; tick();
     } catch (e: any) {
       await setStatus(op.client_id, 'error', String(e?.message ?? e));
-      failed++;
+      failed++; tick();
     }
   }
 
@@ -104,11 +127,14 @@ export async function flush(projectId: string): Promise<{ done: number; failed: 
       await authed(`/api/v1/projects/${projectId}/mobile/media/${id}/confirm`, {
         method: 'POST', body: JSON.stringify({ size_bytes: fileBlob.size ?? null }),
       });
-      await setStatus(op.client_id, 'done');
-      done++;
+      // Persisted locally too (not just sent to the server) — the Uploaded
+      // Data screen's "GB uploaded" total reads this column directly rather
+      // than re-deriving it from anywhere else.
+      await setStatus(op.client_id, 'done', undefined, fileBlob.size ?? undefined);
+      done++; tick();
     } catch (e: any) {
       await setStatus(op.client_id, 'error', String(e?.message ?? e));
-      failed++;
+      failed++; tick();
     }
   }
   return { done, failed };
@@ -117,4 +143,28 @@ export async function flush(projectId: string): Promise<{ done: number; failed: 
 async function msg(res: Response): Promise<string> {
   try { return (await res.json()).detail ?? `HTTP ${res.status}`; }
   catch { return `HTTP ${res.status}`; }
+}
+
+// Serializes every *unscoped* flush() call app-wide — the manual "Sync
+// now"/"Upload pending" buttons and the automatic reconnect-triggered sync
+// (autoSync.ts) all go through this, so two of them can never run at once
+// against the same local rows. If one is already running, callers join it
+// instead of starting a second one (the caller still gets an accurate
+// {done, failed} for "everything pending," just from whichever run
+// actually did the work).
+//
+// Deliberately NOT used for a scoped retry (flush's `onlyClientIds`) — a
+// surveyor retrying one specific failed batch shouldn't be silently folded
+// into an unrelated in-flight run that might not even touch those rows.
+// That stays a direct flush() call; the rare case of it overlapping an
+// unscoped run is safe because every create carries its client_id, which
+// the API already treats as idempotent (see the top-of-file comment).
+let inFlight: Promise<{ done: number; failed: number }> | null = null;
+
+export function runSync(
+  projectId: string, opts?: Parameters<typeof flush>[1],
+): Promise<{ done: number; failed: number }> {
+  if (inFlight) return inFlight;
+  inFlight = flush(projectId, opts).finally(() => { inFlight = null; });
+  return inFlight;
 }

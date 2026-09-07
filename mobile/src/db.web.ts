@@ -11,8 +11,8 @@
 // IndexedDB's cursor/index machinery and plenty fast enough.
 
 const DB_NAME = 'geoplan';
-const DB_VERSION = 1;
-const STORES = ['outbox', 'assets', 'routes', 'kv'] as const;
+const DB_VERSION = 2;
+const STORES = ['outbox', 'assets', 'routes', 'kv', 'drafts'] as const;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -33,6 +33,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('kv')) {
         db.createObjectStore('kv', { keyPath: 'k' });
+      }
+      // Local-only, never synced — see db.ts's drafts table comment.
+      if (!db.objectStoreNames.contains('drafts')) {
+        db.createObjectStore('drafts', { keyPath: 'building_id' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -97,6 +101,26 @@ export async function deleteRoute(clientId: string) {
   await del('routes', clientId);
 }
 
+export async function saveDraft(d: { buildingId: string; code: string | null; attrs: any }) {
+  await put('drafts', {
+    building_id: d.buildingId, code: d.code ?? null,
+    attrs: JSON.stringify(d.attrs), updated_at: new Date().toISOString(),
+  });
+}
+
+export async function listDrafts(): Promise<any[]> {
+  const rows = await getAll('drafts');
+  return rows.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+export async function getDraft(buildingId: string): Promise<any | undefined> {
+  return getOne('drafts', buildingId);
+}
+
+export async function deleteDraft(buildingId: string) {
+  await del('drafts', buildingId);
+}
+
 export function newId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -104,6 +128,7 @@ export function newId(prefix: string): string {
 export type OutboxRow = {
   client_id: string; kind: string; payload: string;
   parent_client_id: string | null; status: string; error: string | null;
+  bytes: number | null;
   created_at: string;
 };
 
@@ -112,7 +137,7 @@ export async function enqueue(op: {
 }) {
   await put('outbox', {
     client_id: op.clientId, kind: op.kind, payload: JSON.stringify(op.payload),
-    parent_client_id: op.parentClientId ?? null, status: 'pending', error: null,
+    parent_client_id: op.parentClientId ?? null, status: 'pending', error: null, bytes: null,
     created_at: new Date().toISOString(),
   });
 }
@@ -134,9 +159,23 @@ export async function pending(): Promise<OutboxRow[]> {
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
-export async function setStatus(clientId: string, status: string, error?: string) {
+// Every outbox row regardless of status — see db.ts's listAllOutbox comment.
+export async function listAllOutbox(): Promise<OutboxRow[]> {
+  const rows = await getAll('outbox');
+  return rows.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 1000);
+}
+
+export async function setStatus(clientId: string, status: string, error?: string, bytes?: number) {
   const row = await getOne('outbox', clientId);
-  if (row) await put('outbox', { ...row, status, error: error ?? null });
+  if (row) await put('outbox', { ...row, status, error: error ?? null, bytes: bytes ?? row.bytes ?? null });
+}
+
+// See db.ts's retryRows comment.
+export async function retryRows(clientIds: string[]) {
+  for (const id of clientIds) {
+    const row = await getOne('outbox', id);
+    if (row) await put('outbox', { ...row, status: 'pending', error: null });
+  }
 }
 
 export async function mapServerId(clientId: string, serverId: string) {

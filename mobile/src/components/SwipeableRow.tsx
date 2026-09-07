@@ -15,10 +15,12 @@ import BottomSheet from './BottomSheet';
 const SWIPE_THRESHOLD = 88;
 
 export default function SwipeableRow({
-  onDelete, onSync, syncLabel = 'Sync now', children,
+  onDelete, onSync, onPress, syncLabel = 'Sync now', children,
 }: {
   onDelete: () => void;
   onSync?: () => void;
+  /** Plain tap (not the long-press actions menu) — opens record detail. */
+  onPress?: () => void;
   syncLabel?: string;
   children: React.ReactNode;
 }) {
@@ -54,8 +56,8 @@ export default function SwipeableRow({
         style={[s.row, { transform: [{ translateX: tx }] }]}
       >
         {/* Long-press fallback for non-gesture / switch-control input (§11 accessibility note). */}
-        <TouchableOpacity activeOpacity={1} delayLongPress={450}
-          onLongPress={() => setMenuOpen(true)} style={{ flex: 1 }}>
+        <TouchableOpacity activeOpacity={onPress ? 0.7 : 1} delayLongPress={450}
+          onLongPress={() => setMenuOpen(true)} onPress={onPress} style={{ flex: 1 }}>
           {children}
         </TouchableOpacity>
       </Animated.View>
