@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import ErrorToaster from './components/ErrorToaster'
+import FieldActivity from './pages/FieldActivity'
 import Login from './pages/Login'
 import ProjectMap from './pages/ProjectMap'
 import Projects from './pages/Projects'
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/:id" element={<ProjectMap />} />
             <Route path="/projects/:id/register" element={<Register />} />
+            <Route path="/projects/:id/field-activity" element={<FieldActivity />} />
             <Route path="/projects/:id/street-matching" element={<StreetMatching />} />
           </Route>
           <Route path="*" element={<Navigate to="/projects" replace />} />

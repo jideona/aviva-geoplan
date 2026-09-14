@@ -348,6 +348,10 @@ export const api = {
     request<RegisterSummary>(`/api/v1/projects/${id}/register/summary`),
   attribution: (id: string, purpose: string) =>
     request<Attribution>(`/api/v1/projects/${id}/register/attribution?purpose=${purpose}`),
+  fieldActivity: (id: string, params: URLSearchParams) =>
+    request<FieldActivityPage>(`/api/v1/projects/${id}/field-data/activity?${params}`),
+  fieldActivitySurveyors: (id: string) =>
+    request<{ surveyors: string[] }>(`/api/v1/projects/${id}/field-data/activity/surveyors`),
   exportUrl: (id: string, fmt: 'csv' | 'xlsx' | 'geojson', params: URLSearchParams) =>
     `${BASE}/api/v1/projects/${id}/register/export.${fmt}?${params}`,
   download: async (url: string, filename: string) => {
@@ -653,6 +657,18 @@ export interface Attribution {
   attribution: string[]
   sources: { name: string; licence: string | null
              licence_class: string; feature_count: number }[]
+}
+
+export interface FieldActivityItem {
+  id: string; occurred_at: string; surveyor: string | null
+  entity_type: string; entity_id: string | null; action: string
+  change_kind: 'captured' | 'modified'
+  changes: Record<string, { before: unknown; after: unknown }> | null
+  lon: number | null; lat: number | null
+}
+
+export interface FieldActivityPage {
+  items: FieldActivityItem[]; total: number; limit: number; offset: number
 }
 
 export interface CurrencyReport {
