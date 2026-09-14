@@ -128,6 +128,25 @@ def buildings_geojson(project_id: UUID, db: DbSession,
                     "currency": classify(b.source_update_date, today).value,
                     "serving_fat": zone_code.get(b.serving_zone_id),
                     "code": b.building_code,
+                    # Recency/attribution — lets the map colour "new since
+                    # import" and "field-modified" separately, and the
+                    # inspector attribute an edit to a surveyor, without a
+                    # second timestamp column (created_at/updated_at already
+                    # exist on every row via TimestampMixin).
+                    "created_at": b.created_at.isoformat(),
+                    "updated_at": b.updated_at.isoformat(),
+                    "last_edited_by": b.last_edited_by,
+                    # Surveyed attributes — carried here too (not just on the
+                    # office /buildings list endpoint) so the survey app can
+                    # tap a footprint on the map and prefill its edit form
+                    # without a second request per building.
+                    "building_type": b.building_type,
+                    "use_type": b.use_type,
+                    "address": b.address,
+                    "units_surveyed": b.units_surveyed,
+                    "drop_deployment": b.drop_deployment,
+                    "notes": b.notes,
+                    "condition": b.condition,
                 },
             })
         except Exception:  # noqa: BLE001 — deliberately defensive per-feature

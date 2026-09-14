@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 /**
  * Layer groups, not individual MapLibre layers. Geometry and its labels are
  * separate entries deliberately: on a dense map the usual need is to keep a
@@ -47,7 +49,9 @@ export const LAYER_GROUPS: LayerGroup[] = [
   { key: 'fatLabels', label: 'FAT codes',
     layers: ['fat-label'], isLabel: true },
   { key: 'manholes', label: 'Manholes / chambers',
-    layers: ['manhole-point'] },
+    layers: ['manhole-point', 'manhole-type-symbol'] },
+  { key: 'surveyRoutes', label: 'Field-recorded routes (as-walked)',
+    layers: ['survey-route-line'] },
 ]
 
 export const DEFAULT_VISIBILITY: Record<string, boolean> =
@@ -59,6 +63,8 @@ export const DEFAULT_VISIBILITY: Record<string, boolean> =
 interface Props {
   visibility: Record<string, boolean>
   onChange: (next: Record<string, boolean>) => void
+  /** For the "see the full feed" link in the field-activity legend below. */
+  projectId: string
 }
 
 /**
@@ -66,7 +72,7 @@ interface Props {
  * map as its own panel with a "Layers" header/toggle; it now lives inside
  * the Design section's Layer tab, so the accordion supplies that framing.
  */
-export default function LayerControl({ visibility, onChange }: Props) {
+export default function LayerControl({ visibility, onChange, projectId }: Props) {
   const set = (key: string, on: boolean) =>
     onChange({ ...visibility, [key]: on })
 
@@ -112,6 +118,30 @@ export default function LayerControl({ visibility, onChange }: Props) {
           </span>
         </label>
       ))}
+
+      <div className="mt-2 border-t border-lightgrey pt-1.5">
+        <p className="mb-1 font-mono text-[9px] uppercase text-steel">Field activity</p>
+        <LegendRow color="#16A34A" label="New — captured in the last 14 days" />
+        <LegendRow color="#F59E0B" label="Modified in the last 30 days" />
+        <p className="mt-1 text-[10px] leading-tight text-steel">
+          Buildings: coloured outline. Manholes / handholes / building photos:
+          coloured halo around the dot. Field-recorded routes: coloured line
+          (violet where unchanged — not the design engine's computed routes).
+          See{' '}
+          <Link to={`/projects/${projectId}/field-activity`} className="underline hover:text-navy">
+            Field Activity
+          </Link>{' '}for the full feed by surveyor.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function LegendRow({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5 py-0.5">
+      <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
+      <span className="text-[10px] text-navy">{label}</span>
     </div>
   )
 }

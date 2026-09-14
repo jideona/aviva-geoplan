@@ -397,6 +397,11 @@ export const api = {
   buildingPhotosGeoJSON: (id: string) =>
     request<{ type: string; features: GeoJSON.Feature[] }>(
       `/api/v1/projects/${id}/mobile/building-photos.geojson`),
+  // Field-recorded ("as-walked") cable routes — distinct from routesGeoJSON
+  // above, which is the design engine's COMPUTED feeder/distribution output.
+  surveyRoutesGeoJSON: (id: string) =>
+    request<{ type: string; features: GeoJSON.Feature[] }>(
+      `/api/v1/projects/${id}/mobile/routes.geojson`),
   listStreets: (id: string) => request<Street[]>(`/api/v1/projects/${id}/streets`),
   licenceSummary: (id: string) =>
     request<LicenceSummary>(`/api/v1/projects/${id}/licence-summary`),
