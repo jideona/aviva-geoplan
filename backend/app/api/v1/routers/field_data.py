@@ -1,12 +1,12 @@
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from fastapi import (APIRouter, Body, Depends, File, Form, HTTPException,
-                     UploadFile, status)
+                     Query, UploadFile, status)
 
 from app.api.deps import CurrentUser, DbSession, require
 from app.core.permissions import Permission
-from app.services import field_data_service, project_service
+from app.services import field_activity_service, field_data_service, project_service
 from app.services.field_data_service import FieldDataError
 from app.services.project_service import ProjectError
 
@@ -90,3 +90,34 @@ def premises_model(project_id: UUID, db: DbSession, user: CurrentUser) -> dict:
     explicit statement of whether the sample supports a district total."""
     project = _project(db, user, project_id)
     return field_data_service.build_model(db, project)
+
+
+# ---- Field activity feed (manager view) ------------------------------------ #
+@router.get("/activity")
+def activity(
+    project_id: UUID, db: DbSession,
+    user=Depends(require(Permission.AUDIT_VIEW)),
+    surveyor: str | None = None,
+    entity_type: str | None = None,
+    since: datetime | None = Query(default=None),
+    until: datetime | None = Query(default=None),
+    limit: int = Query(default=100, le=500),
+    offset: int = 0,
+) -> dict:
+    """Reverse-chronological feed of field captures and edits (buildings,
+    manholes, building photos, survey routes, uploaded media), so a manager in
+    the office can confirm data is actually arriving from the field, see who
+    sent what and when, and tell a brand-new record from one that was just
+    modified. A read model over the append-only audit trail (SRD FR-AUD-001)."""
+    project = _project(db, user, project_id)
+    return field_activity_service.feed(
+        db, project, surveyor=surveyor, entity_type=entity_type,
+        since=since, until=until, limit=limit, offset=offset)
+
+
+@router.get("/activity/surveyors")
+def activity_surveyors(project_id: UUID, db: DbSession,
+                       user=Depends(require(Permission.AUDIT_VIEW))) -> dict:
+    """Distinct surveyors with field activity on this project, for a filter."""
+    project = _project(db, user, project_id)
+    return {"surveyors": field_activity_service.surveyors(db, project)}
