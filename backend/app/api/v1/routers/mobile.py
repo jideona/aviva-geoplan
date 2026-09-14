@@ -270,6 +270,24 @@ def update_building(project_id: UUID, building_id: UUID, payload: UpdateBuilding
                             detail=str(exc)) from exc
 
 
+@router.patch("/buildings/{building_id}/exclude")
+def exclude_building(project_id: UUID, building_id: UUID, payload: ExcludeBuilding,
+                     db: DbSession,
+                     user=Depends(require_any(Permission.BUILDING_EDIT,
+                                              Permission.BUILDING_FIELD_UPDATE))) -> dict:
+    """Flag a footprint the surveyor found does not exist on the ground (or
+    restore one flagged in error). Reversible soft-delete — see
+    building_edit_service.set_excluded; same mechanism the office map's
+    "Remove building" action uses."""
+    project = _project(db, user, project_id)
+    try:
+        return building_edit_service.set_excluded(
+            db, user, project, building_id, payload.excluded, payload.reason)
+    except Exception as exc:                            # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=str(exc)) from exc
+
+
 # ---- Delta sync pull ------------------------------------------------------ #
 @router.get("/sync/changes")
 def sync_changes(project_id: UUID, db: DbSession, user: CurrentUser,
