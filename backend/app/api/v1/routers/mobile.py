@@ -12,7 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, DbSession, require
+from app.api.deps import CurrentUser, DbSession, require, require_any
 from app.core.permissions import Permission
 from app.services import (building_edit_service, building_photo_service,
                           manhole_service, media_service, project_service,
@@ -223,6 +223,15 @@ class UpdateBuilding(BaseModel):
     units_surveyed: int | None = None
     drop_deployment: str | None = None      # 'aerial' | 'underground'
     notes: str | None = None
+    condition: str | None = None            # 'excellent' | 'good' | 'fair' | 'poor'
+    # Full-replace list of linked manhole ids ("Associated Assets"); omit to
+    # leave existing links untouched, pass [] to clear them.
+    linked_manhole_ids: list[UUID] | None = None
+
+
+class ExcludeBuilding(BaseModel):
+    excluded: bool = True
+    reason: str | None = None
 
 
 @router.get("/buildings/near")
@@ -233,13 +242,29 @@ def buildings_near(project_id: UUID, lat: float, lon: float, db: DbSession,
     return {"buildings": building_edit_service.nearest(db, project, lat, lon, limit)}
 
 
+@router.get("/manholes/near")
+def manholes_near(project_id: UUID, lat: float, lon: float, db: DbSession,
+                  user: CurrentUser, limit: int = Query(default=15, le=50)) -> dict:
+    """Nearest manholes to a GPS point — for the Update Building screen's
+    Associated Assets picker."""
+    project = _project(db, user, project_id)
+    return {"manholes": manhole_service.nearest(db, project, lat, lon, limit)}
+
+
 @router.patch("/buildings/{building_id}")
 def update_building(project_id: UUID, building_id: UUID, payload: UpdateBuilding,
-                    db: DbSession, user=Depends(require(Permission.BUILDING_EDIT))) -> dict:
+                    db: DbSession,
+                    user=Depends(require_any(Permission.BUILDING_EDIT,
+                                             Permission.BUILDING_FIELD_UPDATE))) -> dict:
     project = _project(db, user, project_id)
+    attrs = payload.model_dump(exclude_none=True, exclude={"linked_manhole_ids"})
     try:
-        return building_edit_service.update_attributes(
-            db, user, project, building_id, payload.model_dump(exclude_none=True))
+        result = building_edit_service.update_attributes(
+            db, user, project, building_id, attrs)
+        if payload.linked_manhole_ids is not None:
+            result.update(building_edit_service.link_manholes(
+                db, user, project, building_id, payload.linked_manhole_ids))
+        return result
     except Exception as exc:                            # noqa: BLE001
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail=str(exc)) from exc

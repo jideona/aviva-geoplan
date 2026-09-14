@@ -3,6 +3,7 @@ from app.db.models.base import Base
 from app.db.models.boundary import ProjectBoundary
 from app.db.models.building import Building
 from app.db.models.building_photo import BuildingPhoto
+from app.db.models.building_manhole_link import BuildingManholeLink
 from app.db.models.corridor import Corridor
 from app.db.models.deployment import DeploymentTask
 from app.db.models.design import DesignRun, Fdh, ServingZone
@@ -21,7 +22,7 @@ from app.db.models.survey_data import PremisesObservation, RecordedStreet
 from app.db.models.user import User
 
 __all__ = ["Base", "Organisation", "User", "Project", "ProjectBoundary",
-           "Street", "Building", "BuildingPhoto", "DataSource", "ProvenanceRecord", "AuditLog",
+           "Street", "Building", "BuildingPhoto", "BuildingManholeLink", "DataSource", "ProvenanceRecord", "AuditLog",
            "RecordedStreet", "PremisesObservation", "DesignRun", "ServingZone", "Fdh", "Parcel",
            "Corridor", "Manhole", "MediaAsset", "SurveySession", "SurveyRoute",
            "ReferenceBoundary", "StockItem", "DeploymentTask"]

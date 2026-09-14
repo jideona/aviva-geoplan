@@ -29,6 +29,13 @@ class Permission(str, Enum):
     GIS_IMPORT = "gis:import"
     GIS_EDIT = "gis:edit"
     BUILDING_EDIT = "building:edit"
+    # Narrower than BUILDING_EDIT: lets a field role update a building's own
+    # surveyed attributes (type, units, address, notes) and flag a footprint
+    # as not existing from the survey app, without granting the desktop
+    # capabilities BUILDING_EDIT also covers (drawing/moving/deleting
+    # arbitrary footprints). Every role holding BUILDING_EDIT is granted this
+    # too, so nothing that could edit a building before loses mobile access.
+    BUILDING_FIELD_UPDATE = "building:field_update"
     EXPORT = "export"
     AUDIT_VIEW = "audit:view"
     USER_MANAGE = "user:manage"
@@ -47,23 +54,24 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.PROJECT_MANAGER: {
         Permission.PROJECT_CREATE, Permission.PROJECT_EDIT, Permission.PROJECT_VIEW,
         Permission.GIS_IMPORT, Permission.GIS_EDIT, Permission.BUILDING_EDIT,
+        Permission.BUILDING_FIELD_UPDATE,
         Permission.EXPORT, Permission.AUDIT_VIEW, Permission.INVENTORY_MANAGE,
         Permission.TASK_MANAGE,
     },
     Role.GIS_PLANNER: {
         Permission.PROJECT_VIEW, Permission.GIS_IMPORT, Permission.GIS_EDIT,
-        Permission.BUILDING_EDIT, Permission.EXPORT,
+        Permission.BUILDING_EDIT, Permission.BUILDING_FIELD_UPDATE, Permission.EXPORT,
     },
     Role.NETWORK_DESIGNER: {
         Permission.PROJECT_VIEW, Permission.GIS_EDIT, Permission.EXPORT,
         Permission.INVENTORY_MANAGE,
     },
     Role.SURVEY_COORDINATOR: {Permission.PROJECT_VIEW, Permission.BUILDING_EDIT,
-                              Permission.TASK_MANAGE},
-    Role.FIELD_SURVEYOR: {Permission.PROJECT_VIEW},
-    Role.SALES_SURVEYOR: {Permission.PROJECT_VIEW},
+                              Permission.BUILDING_FIELD_UPDATE, Permission.TASK_MANAGE},
+    Role.FIELD_SURVEYOR: {Permission.PROJECT_VIEW, Permission.BUILDING_FIELD_UPDATE},
+    Role.SALES_SURVEYOR: {Permission.PROJECT_VIEW, Permission.BUILDING_FIELD_UPDATE},
     Role.QA_REVIEWER: {Permission.PROJECT_VIEW, Permission.BUILDING_EDIT,
-                       Permission.AUDIT_VIEW},
+                       Permission.BUILDING_FIELD_UPDATE, Permission.AUDIT_VIEW},
     Role.CONSTRUCTION_MANAGER: {Permission.PROJECT_VIEW, Permission.EXPORT,
                                 Permission.TASK_MANAGE},
     Role.CONTRACTOR: {Permission.PROJECT_VIEW},

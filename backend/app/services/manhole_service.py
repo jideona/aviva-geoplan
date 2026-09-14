@@ -22,6 +22,22 @@ class ManholeError(ValueError):
     """Message is safe to show the user."""
 
 
+def nearest(db: Session, project: Project, lat: float, lon: float,
+           limit: int = 15) -> list[dict]:
+    """Manholes closest to a GPS point — for the Update Building screen's
+    Associated Assets picker (mirrors building_edit_service.nearest)."""
+    from sqlalchemy import func
+    pt = func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)
+    dist = func.ST_DistanceSphere(Manhole.geom, pt)
+    rows = db.execute(
+        select(Manhole.id, Manhole.code, Manhole.manhole_type, Manhole.condition,
+               dist.label("dist"))
+        .where(Manhole.project_id == project.id, Manhole.excluded.is_(False))
+        .order_by(dist).limit(limit)).all()
+    return [{"id": str(r.id), "code": r.code, "manhole_type": r.manhole_type,
+             "condition": r.condition, "distance_m": round(r.dist, 1)} for r in rows]
+
+
 def create(db: Session, user: User, project: Project, *, lon: float, lat: float,
            manhole_type: str = "manhole", condition: str = "unknown",
            code: str | None = None, condition_notes: str | None = None,

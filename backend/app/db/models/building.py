@@ -18,6 +18,11 @@ BUILDING_TYPES = (
 )
 USE_TYPES = ("residential", "commercial", "mixed", "institutional", "unknown")
 
+# Physical condition as surveyed in the field — separate vocabulary from
+# Manhole's CONDITIONS (which has infrastructure-specific states like
+# "buried"/"inaccessible" that don't mean anything for a building).
+BUILDING_CONDITIONS = ("excellent", "good", "fair", "poor")
+
 
 class Building(UUIDMixin, TimestampMixin, Base):
     """The canonical building record.
@@ -97,7 +102,17 @@ class Building(UUIDMixin, TimestampMixin, Base):
         String(30), nullable=False, default="imported", index=True)
     survey_status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="not_surveyed")
+    # Who last touched this record by hand (create/move/field-update/exclude),
+    # from the acting user's email. None means the row has never been
+    # hand-edited since import — office map colouring and the field-activity
+    # feed both key off this plus updated_at (TimestampMixin bumps on every
+    # UPDATE) to show "new"/"modified" without a second timestamp column.
+    last_edited_by: Mapped[str | None] = mapped_column(String(200), index=True)
     notes: Mapped[str | None] = mapped_column(Text)
+    # Field-assessed condition (excellent/good/fair/poor) — None means never
+    # assessed. Separate from verification_state, which tracks data lineage
+    # (imported/field_observed/...) rather than the building's physical state.
+    condition: Mapped[str | None] = mapped_column(String(20))
     # Excluded buildings (non-serviceable: sheds, ruins, mis-detections) are
     # hidden from the map, register and design but kept for audit — reversible,
     # unlike a hard delete of original data.
