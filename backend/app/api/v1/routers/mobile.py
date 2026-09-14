@@ -288,6 +288,69 @@ def exclude_building(project_id: UUID, building_id: UUID, payload: ExcludeBuildi
                             detail=str(exc)) from exc
 
 
+# ---- Single-record server confirmation ------------------------------------ #
+# So the field app can show "this reached the server" detail for one capture
+# (per the office/field request to confirm images and coordinates actually
+# arrived) without pulling a whole layer just to find one feature.
+@router.get("/records/{kind}/{record_id}")
+def record_detail(project_id: UUID, kind: str, record_id: UUID, db: DbSession,
+                  user: CurrentUser) -> dict:
+    from geoalchemy2.shape import to_shape
+
+    project = _project(db, user, project_id)
+
+    if kind == "manhole":
+        from app.db.models.manhole import Manhole
+        row = db.get(Manhole, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+        p = to_shape(row.geom)
+        return {"kind": "manhole", "lon": p.x, "lat": p.y, "code": row.code,
+                "condition": row.condition, "surveyed_by": row.surveyed_by,
+                "verification_state": row.verification_state,
+                "updated_at": row.updated_at.isoformat()}
+
+    if kind == "building_photo":
+        from app.db.models.building_photo import BuildingPhoto
+        row = db.get(BuildingPhoto, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+        p = to_shape(row.geom)
+        return {"kind": "building_photo", "lon": p.x, "lat": p.y,
+                "surveyed_by": row.surveyed_by,
+                "verification_state": row.verification_state,
+                "updated_at": row.updated_at.isoformat()}
+
+    if kind == "route":
+        from app.db.models.survey_route import SurveyRoute
+        row = db.get(SurveyRoute, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+        return {"kind": "route", "route_type": row.route_type, "code": row.code,
+                "length_m": float(row.length_m), "point_count": row.point_count,
+                "surveyed_by": row.surveyed_by,
+                "updated_at": row.updated_at.isoformat()}
+
+    if kind == "building":
+        from app.db.models.building import Building
+        row = db.get(Building, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+        return {"kind": "building", "code": row.building_code,
+                "building_type": row.building_type, "address": row.address,
+                "units_surveyed": row.units_surveyed,
+                "drop_deployment": row.drop_deployment,
+                "condition": row.condition,
+                "linked_manholes": building_edit_service.linked_manholes(
+                    db, project, row.id)["linked_manholes"],
+                "last_edited_by": row.last_edited_by,
+                "verification_state": row.verification_state,
+                "updated_at": row.updated_at.isoformat()}
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Unknown record kind.")
+
+
 # ---- Delta sync pull ------------------------------------------------------ #
 @router.get("/sync/changes")
 def sync_changes(project_id: UUID, db: DbSession, user: CurrentUser,

@@ -58,6 +58,7 @@ def geojson(db: Session, project: Project, since: datetime | None = None) -> dic
         "type": "Feature", "geometry": mapping(to_shape(bp.geom)),
         "properties": {"id": str(bp.id), "kind": "building_photo",
                        "surveyed_by": bp.surveyed_by,
+                       "created_at": bp.created_at.isoformat(),
                        "updated_at": bp.updated_at.isoformat()}}
         for bp in db.scalars(q)]
     return {"type": "FeatureCollection", "features": features}

@@ -136,6 +136,11 @@ def geojson(db: Session, project: Project, since: datetime | None = None) -> dic
                        "condition": m.condition, "notes": m.condition_notes,
                        "surveyed_by": m.surveyed_by,
                        "assessed_at": m.assessed_at.isoformat() if m.assessed_at else None,
+                       # created_at/updated_at let the map (and any other
+                       # consumer) tell a manhole/handhole just captured from
+                       # one that already existed and was only reassessed —
+                       # same recency signal buildings.geojson carries.
+                       "created_at": m.created_at.isoformat(),
                        "updated_at": m.updated_at.isoformat()}}
         for m in db.scalars(q)]
     return {"type": "FeatureCollection", "features": features}
