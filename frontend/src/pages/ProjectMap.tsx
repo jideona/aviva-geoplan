@@ -473,10 +473,15 @@ export default function ProjectMap() {
             'new', '#16A34A',        // green — captured within ACTIVITY_NEW_DAYS
             'modified', '#F59E0B',   // amber — field-edited within ACTIVITY_RECENT_DAYS
             '#0D1B4B'],              // untouched — the original navy outline
-          'line-width': ['case',
-            ['!=', ['get', 'activity'], 'none'],
-            ['interpolate', ['linear'], ['zoom'], 12, 1.6, 16, 2.6],
-            ['interpolate', ['linear'], ['zoom'], 12, 0.6, 16, 1.2]],
+          'line-width': ['interpolate', ['linear'], ['zoom'],
+            12, ['case',
+              ['!=', ['get', 'activity'], 'none'],
+              1.6,
+              0.6],
+            16, ['case',
+              ['!=', ['get', 'activity'], 'none'],
+              2.6,
+              1.2]],
           'line-opacity': 0.9,
         }
       })
