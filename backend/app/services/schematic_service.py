@@ -102,21 +102,41 @@ def assemble(db: Session, project: Project) -> dict:
     fdh_split = int(rules.get("fdh_split_ratio", 32))
 
     # ---- per-FAT port schedule + straight-line drop lengths ----
+    # One port — and therefore one physical drop cable — per SERVICEABLE
+    # UNIT, not per building row. A building whose surveyed/modelled/assumed
+    # premises count is >1 (a terrace row, a small block) is expanded into
+    # one port per unit here (B12-U1..B12-U6), so the port schedule, the BOQ
+    # drop count and cable_core_schedule's per-drop segments all account for
+    # every unit individually. Zone/FDH capacity already planned around the
+    # same premises count (see planning/engine.py's clustering on
+    # b.premises), so the expanded total should fit z.usable_ports — unless
+    # units_surveyed was edited in the field after the last design run, which
+    # "overallocated" below flags rather than silently under-reporting drops.
     fats = []
     for z in zones:
         fp = to_shape(z.fat_point)
         members = by_zone.get(z.id, [])
         ports = []
-        for i, b in enumerate(members, start=1):
-            ports.append({
-                "port": i, "building": b["code"],
-                "premises": b["premises"],
-                "premises_source": b["premises_source"],
-                "address": b["address"],
-                "deployment": b["deployment"],
-                "drop_est_m": round(_geodesic_m(fp.x, fp.y, b["lon"], b["lat"]), 1),
-            })
-        for i in range(len(members) + 1, z.usable_ports + 1):
+        port_no = 0
+        for b in members:
+            units = max(1, int(b["premises"] or 1))
+            for u in range(1, units + 1):
+                port_no += 1
+                ports.append({
+                    "port": port_no,
+                    "building": b["code"] if units == 1 else f'{b["code"]}-U{u}',
+                    "unit": u if units > 1 else None,
+                    "unit_count": units if units > 1 else None,
+                    "premises": 1,
+                    "premises_source": b["premises_source"],
+                    "address": b["address"],
+                    "deployment": b["deployment"],
+                    "drop_est_m": round(_geodesic_m(fp.x, fp.y, b["lon"], b["lat"]), 1),
+                })
+        overallocated = port_no > z.usable_ports
+        required_ports = port_no
+        capacity_deficit = max(0, required_ports - z.usable_ports)
+        for i in range(port_no + 1, z.usable_ports + 1):
             ports.append({"port": i, "building": "SPARE", "drop_est_m": None})
         # Distribution fibre need: unsplit FAT carries one fibre per usable
         # port; a split FAT needs one feed fibre (+1 spare).
@@ -126,11 +146,19 @@ def assemble(db: Session, project: Project) -> dict:
             "code": z.zone_code, "fdh": fdh.fdh_code if fdh else None,
             "lon": fp.x, "lat": fp.y,
             "premises": z.premises_count, "buildings": z.building_count,
-            "usable_ports": z.usable_ports, "spare_ports": z.spare_ports,
+            "usable_ports": z.usable_ports,
+            "required_ports": required_ports,
+            "capacity_deficit": capacity_deficit,
+            "spare_ports": max(0, z.usable_ports - required_ports),
             "utilisation_pct": float(z.utilisation_pct),
             "avg_drop_m": float(z.avg_drop_m), "max_drop_m": float(z.max_drop_m),
-            "warnings": list(z.warnings or []),
+            "warnings": (list(z.warnings or [])
+                        + ([f"Current survey requires {required_ports} ports "
+                             f"but this design provides {z.usable_ports} — "
+                             f"deficit {capacity_deficit}. Re-run network design."]
+                           if overallocated else [])),
             "premises_assumed": z.premises_assumed,
+            "overallocated": overallocated,
             "ports": ports,
             "dist_cable_fibres": _std_fibre(dist_fibres),
         })

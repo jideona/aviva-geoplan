@@ -108,6 +108,9 @@ def assemble(db, project: Project) -> dict:
 
     # ---- port-level detail (fibre counts, splices, terminations) ----
     feeder_fibres = fat_ports_total = 0
+    required_ports_total = 0
+    capacity_deficit_total = 0
+    overallocated_fats: list[str] = []
     feeder_lines: list = []
     dist_fibre_size = 12
     aerial_drops = 0
@@ -118,6 +121,16 @@ def assemble(db, project: Project) -> dict:
         from collections import defaultdict
         feeder_fibres = sum(f["feeder_cable_fibres"] for f in connectivity["fdhs"])
         fat_ports_total = sum(z["usable_ports"] for z in connectivity["fats"])
+        required_ports_total = sum(
+            z.get("required_ports", z["usable_ports"])
+            for z in connectivity["fats"])
+        capacity_deficit_total = sum(
+            z.get("capacity_deficit", 0)
+            for z in connectivity["fats"])
+        overallocated_fats = [
+            z["code"] for z in connectivity["fats"]
+            if z.get("overallocated")
+        ]
         sizes = sorted({f["dist_cable_fibres"] for f in connectivity["fats"]})
         dist_fibre_size = sizes[0] if len(sizes) == 1 else 0
         # Apportion measured feeder length across cable sizes by each FDH's
@@ -351,6 +364,13 @@ def assemble(db, project: Project) -> dict:
         stock_comparison.append(cl.as_dict())
 
     warnings = list(design.get("warnings") or []) + list(pilot.get("warnings") or [])
+    if capacity_deficit_total:
+        warnings.append(
+            f"REDESIGN REQUIRED — current survey requires {required_ports_total} "
+            f"FAT ports but the current design provides {fat_ports_total}; "
+            f"capacity deficit {capacity_deficit_total} across "
+            f"{len(overallocated_fats)} FAT(s): {', '.join(overallocated_fats)}."
+        )
     if full is None:
         warnings.append("Full-network routing unavailable — SOM/BOQ quantities "
                         "cover pilot phases 1+2 only.")
@@ -372,6 +392,13 @@ def assemble(db, project: Project) -> dict:
             "distribution_cable_m": dist_cable, "drop_cable_m": drop_cable_m,
         },
         "som": som, "boq": boq, "warnings": warnings,
+        "capacity_status": {
+            "designed_fat_ports": fat_ports_total,
+            "required_fat_ports": required_ports_total,
+            "capacity_deficit": capacity_deficit_total,
+            "overallocated_fats": overallocated_fats,
+            "redesign_required": capacity_deficit_total > 0,
+        },
         "stock_comparison": stock_comparison,
         "core_schedule": core_schedule,
     }
