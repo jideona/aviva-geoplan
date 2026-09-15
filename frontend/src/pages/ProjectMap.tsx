@@ -138,6 +138,57 @@ const GLYPHS = (import.meta.env.VITE_GLYPHS_URL as string | undefined)
 // comma-joined fontstack that a static server cannot composite.
 const FONT_STACK = ['Liberation Sans Regular']
 
+/**
+ * Manhole/handhole type markers used to render as Unicode glyphs (▲ handhole
+ * / ■ manhole / ◆ other) via MapLibre's text-field. Those characters sit in
+ * the Geometric Shapes block (U+25A0-25FF), well past the 0-1023 code-point
+ * range scripts/generate-glyphs.js actually pre-generates PBFs for ("Latin +
+ * Latin-1 + punctuation" per its own comment) — so the moment a manhole
+ * feature is on screen, MapLibre requests a glyph range that was never
+ * built, the SPA fallback serves index.html for that missing path instead of
+ * a 404, and the map's protobuf parser throws trying to read HTML as a PBF
+ * ("Unimplemented type: 4"). Small raster icons sidestep font glyphs (and
+ * this whole class of bug) entirely for this layer.
+ */
+function drawManholeTypeIcon(shape: 'triangle' | 'square' | 'diamond'): ImageData {
+  const size = 20
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.clearRect(0, 0, size, size)
+  ctx.fillStyle = '#ffffff'
+  ctx.strokeStyle = '#1B2B41'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  const c = size / 2
+  const r = size / 2 - 3
+  if (shape === 'triangle') {
+    ctx.moveTo(c, c - r)
+    ctx.lineTo(c + r * 0.95, c + r * 0.8)
+    ctx.lineTo(c - r * 0.95, c + r * 0.8)
+    ctx.closePath()
+  } else if (shape === 'square') {
+    const s = r * 1.3
+    ctx.rect(c - s / 2, c - s / 2, s, s)
+  } else {
+    ctx.moveTo(c, c - r)
+    ctx.lineTo(c + r, c)
+    ctx.lineTo(c, c + r)
+    ctx.lineTo(c - r, c)
+    ctx.closePath()
+  }
+  ctx.fill()
+  ctx.stroke()
+  return ctx.getImageData(0, 0, size, size)
+}
+
+const MANHOLE_TYPE_ICONS = {
+  handhole: 'manhole-icon-handhole',
+  manhole: 'manhole-icon-manhole',
+  other: 'manhole-icon-other',
+} as const
+
 const PLAIN_STYLE: StyleSpecification = {
   version: 8, glyphs: GLYPHS, sources: {},
   layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#F2F6FB' } }],
@@ -319,6 +370,13 @@ export default function ProjectMap() {
           failedLayers.push(spec.id)
           // eslint-disable-next-line no-console
           console.error('[maplibre layer]', spec.id, e)
+        }
+      }
+      for (const [shape, name] of Object.entries(MANHOLE_TYPE_ICONS) as
+          [keyof typeof MANHOLE_TYPE_ICONS, string][]) {
+        if (!m.hasImage(name)) {
+          m.addImage(name, drawManholeTypeIcon(
+            shape === 'handhole' ? 'triangle' : shape === 'manhole' ? 'square' : 'diamond'))
         }
       }
       // Esri World Imagery — free, ~0.5 m over Abuja. Display only: tiles are
@@ -748,17 +806,14 @@ export default function ProjectMap() {
       addLayer({
         id: 'manhole-type-symbol', type: 'symbol', source: 'manholes',
         layout: {
-          'text-field': ['match', ['get', 'type'],
-            'handhole', '▲', 'manhole', '■', '◆'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 13, 8, 18, 14],
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
+          'icon-image': ['match', ['get', 'type'],
+            'handhole', MANHOLE_TYPE_ICONS.handhole,
+            'manhole', MANHOLE_TYPE_ICONS.manhole,
+            MANHOLE_TYPE_ICONS.other],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.4, 18, 0.7],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
         },
-        paint: {
-          'text-color': '#ffffff',
-          'text-halo-color': '#1B2B41',
-          'text-halo-width': 1,
-        }
       })
       m.on('click', ['manhole-point', 'manhole-type-symbol'], (e) => {
         const f = e.features?.[0]
