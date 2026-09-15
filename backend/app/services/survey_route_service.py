@@ -90,6 +90,7 @@ def geojson(db: Session, project: Project, since=None) -> dict:
         "properties": {"id": str(r.id), "code": r.code, "type": r.route_type,
                        "length_m": float(r.length_m), "points": r.point_count,
                        "surveyed_by": r.surveyed_by,
+                       "last_edited_by": r.last_edited_by,
                        "created_at": r.created_at.isoformat(),
                        "updated_at": r.updated_at.isoformat()}}
         for r in db.scalars(q)]

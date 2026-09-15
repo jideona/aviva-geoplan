@@ -44,6 +44,10 @@ class Manhole(UUIDMixin, TimestampMixin, Base):
     assessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     surveyed_by: Mapped[str | None] = mapped_column(String(200))
+    # Who last hand-edited (reassessed/repositioned/relabelled) this manhole,
+    # distinct from surveyed_by which stays the original field capturer —
+    # mirrors Building.last_edited_by. None means never edited since capture.
+    last_edited_by: Mapped[str | None] = mapped_column(String(200), index=True)
     survey_session_id: Mapped[uuid.UUID | None] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("survey_session.id", ondelete="SET NULL"))
 

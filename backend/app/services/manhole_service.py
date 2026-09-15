@@ -83,14 +83,22 @@ def update_condition(db: Session, user: User, project: Project,
         Manhole.id == manhole_id, Manhole.project_id == project.id))
     if row is None:
         raise ManholeError("Manhole not found.")
+    # Real before/after per changed field, not a single hardcoded key — so the
+    # audit trail (and the field-activity feed built on it) can show what
+    # actually changed on a reassessment rather than always "condition".
+    changes: dict = {}
     if condition is not None:
         if condition not in CONDITIONS:
             raise ManholeError(f"condition must be one of {', '.join(CONDITIONS)}.")
+        if condition != row.condition:
+            changes["condition"] = {"before": row.condition, "after": condition}
         row.condition = condition
         row.assessed_at = datetime.now(timezone.utc)
-    if condition_notes is not None:
+    if condition_notes is not None and condition_notes != row.condition_notes:
+        changes["condition_notes"] = {"before": row.condition_notes, "after": condition_notes}
         row.condition_notes = condition_notes
-    if code is not None:
+    if code is not None and code != row.code:
+        changes["code"] = {"before": row.code, "after": code}
         row.code = code
     # Repositioning — a surveyor dragging the pin to the actual spot after a
     # rough initial drop, or nudging it once a satellite/street view makes
@@ -99,10 +107,16 @@ def update_condition(db: Session, user: User, project: Project,
     if lon is not None and lat is not None:
         if not (-90 <= lat <= 90 and -180 <= lon <= 180):
             raise ManholeError("Coordinates are out of range.")
+        prev = to_shape(row.geom)
         row.geom = from_shape(Point(lon, lat), srid=4326)
+        changes["position"] = {"before": [prev.x, prev.y], "after": [lon, lat]}
+    # The original field capturer (surveyed_by) never changes here — this is
+    # always a subsequent reassessment/correction, so it's last_edited_by that
+    # moves, same distinction as Building.last_edited_by.
+    row.last_edited_by = user.email
     audit_service.record(db, actor=user, entity_type="manhole", entity_id=row.id,
                          action="assess_manhole", project_id=project.id,
-                         changes={"condition": {"before": None, "after": row.condition}})
+                         changes=changes)
     db.commit()
     return _out(row)
 
@@ -135,6 +149,7 @@ def geojson(db: Session, project: Project, since: datetime | None = None) -> dic
         "properties": {"id": str(m.id), "code": m.code, "type": m.manhole_type,
                        "condition": m.condition, "notes": m.condition_notes,
                        "surveyed_by": m.surveyed_by,
+                       "last_edited_by": m.last_edited_by,
                        "assessed_at": m.assessed_at.isoformat() if m.assessed_at else None,
                        # created_at/updated_at let the map (and any other
                        # consumer) tell a manhole/handhole just captured from
@@ -151,5 +166,7 @@ def _out(m: Manhole) -> dict:
     return {"id": str(m.id), "client_id": m.client_id, "code": m.code,
             "manhole_type": m.manhole_type, "lon": p.x, "lat": p.y,
             "condition": m.condition, "condition_notes": m.condition_notes,
+            "surveyed_by": m.surveyed_by, "last_edited_by": m.last_edited_by,
             "verification_state": m.verification_state,
+            "created_at": m.created_at.isoformat(),
             "updated_at": m.updated_at.isoformat()}

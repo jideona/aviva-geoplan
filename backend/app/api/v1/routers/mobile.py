@@ -307,7 +307,9 @@ def record_detail(project_id: UUID, kind: str, record_id: UUID, db: DbSession,
         p = to_shape(row.geom)
         return {"kind": "manhole", "lon": p.x, "lat": p.y, "code": row.code,
                 "condition": row.condition, "surveyed_by": row.surveyed_by,
+                "last_edited_by": row.last_edited_by,
                 "verification_state": row.verification_state,
+                "created_at": row.created_at.isoformat(),
                 "updated_at": row.updated_at.isoformat()}
 
     if kind == "building_photo":
@@ -318,7 +320,9 @@ def record_detail(project_id: UUID, kind: str, record_id: UUID, db: DbSession,
         p = to_shape(row.geom)
         return {"kind": "building_photo", "lon": p.x, "lat": p.y,
                 "surveyed_by": row.surveyed_by,
+                "last_edited_by": row.last_edited_by,
                 "verification_state": row.verification_state,
+                "created_at": row.created_at.isoformat(),
                 "updated_at": row.updated_at.isoformat()}
 
     if kind == "route":
@@ -329,6 +333,8 @@ def record_detail(project_id: UUID, kind: str, record_id: UUID, db: DbSession,
         return {"kind": "route", "route_type": row.route_type, "code": row.code,
                 "length_m": float(row.length_m), "point_count": row.point_count,
                 "surveyed_by": row.surveyed_by,
+                "last_edited_by": row.last_edited_by,
+                "created_at": row.created_at.isoformat(),
                 "updated_at": row.updated_at.isoformat()}
 
     if kind == "building":

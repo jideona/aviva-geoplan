@@ -104,9 +104,11 @@ export default function RecordDetail({ item, onClose }: { item: DetailItem | nul
               {server.drop_deployment && <Row label="Drop deployment" value={server.drop_deployment} />}
               {server.length_m != null && <Row label="Length" value={`${Math.round(server.length_m)} m`} />}
               {server.point_count != null && <Row label="Points" value={String(server.point_count)} />}
-              {(server.surveyed_by || server.last_edited_by) && (
-                <Row label="Attributed to" value={server.surveyed_by ?? server.last_edited_by} />
+              {server.surveyed_by && <Row label="Captured by" value={server.surveyed_by} />}
+              {server.created_at && (
+                <Row label="Captured" value={new Date(server.created_at).toLocaleString()} />
               )}
+              {server.last_edited_by && <Row label="Last edited by" value={server.last_edited_by} />}
               {server.verification_state && <Row label="Verification" value={server.verification_state} />}
               {server.updated_at && (
                 <Row label="Last updated on server" value={new Date(server.updated_at).toLocaleString()} />
