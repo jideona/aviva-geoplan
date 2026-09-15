@@ -9,6 +9,7 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { authed } from '../auth';
 import { kvGet, serverIdFor } from '../db';
 import { COLOR, RADIUS, SPACE, TYPE } from '../theme';
+import { Icon } from './Icon';
 import BottomSheet from './BottomSheet';
 
 export type DetailItem = {
@@ -73,9 +74,10 @@ export default function RecordDetail({ item, onClose }: { item: DetailItem | nul
       <Row label="When" value={new Date(item.createdAt).toLocaleString()} />
       {item.sub ? <Row label="Detail" value={item.sub} /> : null}
 
-      <View style={[s.statusBanner, item.synced ? s.statusOk : s.statusPending]}>
+      <View style={[s.statusBanner, s.statusRow, item.synced ? s.statusOk : s.statusPending]}>
+        <Icon name={item.synced ? 'check' : 'pendingDrafts'} size={13} color={item.synced ? '#00887A' : '#4B5563'} />
         <Text style={[s.statusText, item.synced ? s.statusOkText : s.statusPendingText]}>
-          {item.synced ? '✓ Sent to the server' : '⏳ Not sent yet — will go out on next sync'}
+          {item.synced ? 'Sent to the server' : 'Not sent yet — will go out on next sync'}
         </Text>
       </View>
 
@@ -91,8 +93,9 @@ export default function RecordDetail({ item, onClose }: { item: DetailItem | nul
           )}
           {server && (
             <>
-              <View style={[s.statusBanner, s.statusOk]}>
-                <Text style={[s.statusText, s.statusOkText]}>✓ Confirmed on the server</Text>
+              <View style={[s.statusBanner, s.statusRow, s.statusOk]}>
+                <Icon name="check" size={13} color="#00887A" />
+                <Text style={[s.statusText, s.statusOkText]}>Confirmed on the server</Text>
               </View>
               {server.lon != null && server.lat != null && (
                 <Row label="Server coordinates" value={`${Number(server.lat).toFixed(5)}, ${Number(server.lon).toFixed(5)}`} />
@@ -128,6 +131,7 @@ const s = StyleSheet.create({
   rowLabel: { fontSize: 13, color: COLOR.text500 },
   rowValue: { fontSize: 13, fontWeight: '700', color: COLOR.text900, textAlign: 'right', flexShrink: 1, marginLeft: SPACE.sm },
   statusBanner: { borderRadius: RADIUS.sm, paddingVertical: SPACE.xs + 2, paddingHorizontal: SPACE.sm + 2, marginTop: SPACE.sm },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
   statusOk: { backgroundColor: '#E1F7F1' },
   statusPending: { backgroundColor: '#EEF0F2' },
   statusText: { fontSize: 12, fontWeight: '700' },

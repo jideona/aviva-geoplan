@@ -10,6 +10,7 @@
 import { useRef, useState } from 'react';
 import { Animated, PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { COLOR, RADIUS, SPACE, TYPE, isWeb } from '../theme';
+import { Icon } from './Icon';
 import BottomSheet from './BottomSheet';
 
 const SWIPE_THRESHOLD = 88;
@@ -43,12 +44,12 @@ export default function SwipeableRow({
     <View style={s.wrap}>
       {/* Right-edge reveal (swipe left) — delete */}
       <View style={[s.reveal, s.revealRight]}>
-        <Text style={s.revealIcon}>🗑</Text>
+        <Icon name="delete" size={18} color="#fff" />
       </View>
       {/* Left-edge reveal (swipe right) — sync */}
       {onSync && (
         <View style={[s.reveal, s.revealLeft]}>
-          <Text style={s.revealIcon}>✓</Text>
+          <Icon name="synced" size={18} color="#fff" />
         </View>
       )}
       <Animated.View

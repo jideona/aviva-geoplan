@@ -11,6 +11,7 @@ import { kvGet, listAllOutbox, retryRows, type OutboxRow } from '../db';
 import { flush, runSync } from '../sync';
 import { notify } from '../notify';
 import { COLOR, SPACE, RADIUS, TYPE, MIN_TOUCH, isWeb } from '../theme';
+import { Icon } from '../components/Icon';
 import BottomSheet from '../components/BottomSheet';
 
 // Kinds that represent a surveyed entity — everything else in the outbox
@@ -171,11 +172,11 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
       <View style={s.header}>
         <View style={s.headerTop}>
           <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={s.chevron}>‹</Text>
+            <Icon name="back" size={22} color="#fff" />
           </TouchableOpacity>
           <Text style={s.headerTitle} numberOfLines={1}>Uploaded Data</Text>
           <TouchableOpacity onPress={reload} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={s.reloadIcon}>⟳</Text>
+            <Icon name="synced" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
         <View style={s.summaryGrid}>
@@ -295,7 +296,7 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
                             <Image source={{ uri }} style={s.mediaThumb} resizeMode="cover" />
                           ) : (
                             <View style={[s.mediaThumb, s.mediaThumbFallback]}>
-                              <Text style={s.mediaThumbGlyph}>{kind === 'video' ? '▶' : '◻'}</Text>
+                              <Icon name={kind === 'video' ? 'play' : 'photo'} size={18} color={COLOR.text500} />
                             </View>
                           )}
                           {!!r.bytes && (
@@ -310,9 +311,13 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
                             r.status === 'done' ? s.mediaStatusDone
                               : r.status === 'error' ? s.mediaStatusError : s.mediaStatusPending,
                           ]}>
-                            <Text style={s.mediaStatusGlyph}>
-                              {r.status === 'done' ? '✓' : r.status === 'error' ? '!' : '•'}
-                            </Text>
+                            {r.status === 'done' ? (
+                              <Icon name="check" size={11} color="#fff" />
+                            ) : r.status === 'error' ? (
+                              <Icon name="flagged" size={11} color="#fff" />
+                            ) : (
+                              <View style={s.mediaStatusDot} />
+                            )}
                           </View>
                           {/* Manual per-photo upload — "in case for some
                               reason" the automatic/batch sync hasn't
@@ -324,7 +329,7 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
                               onPress={() => uploadOne(r)}>
                               {isUploading
                                 ? <ActivityIndicator color="#fff" size="small" />
-                                : <Text style={s.mediaUploadGlyph}>⇑</Text>}
+                                : <Icon name="uploadedData" size={15} color="#fff" />}
                             </TouchableOpacity>
                           )}
                         </View>
@@ -426,6 +431,7 @@ const s = StyleSheet.create({
   mediaStatusPending: { backgroundColor: COLOR.text500 },
   mediaStatusError: { backgroundColor: COLOR.accent500 },
   mediaStatusGlyph: { fontSize: 11, fontWeight: '700', color: '#fff', lineHeight: 13 },
+  mediaStatusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' },
   mediaUploadBtn: { position: 'absolute', bottom: 4, right: 4, width: MIN_TOUCH - 12, height: MIN_TOUCH - 12, borderRadius: (MIN_TOUCH - 12) / 2, backgroundColor: COLOR.primary900, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#fff' },
   mediaUploadGlyph: { fontSize: 15, fontWeight: '700', color: '#fff' },
   mediaOverflow: { alignItems: 'center', justifyContent: 'center', backgroundColor: COLOR.surface100 },

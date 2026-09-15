@@ -4,6 +4,7 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from 'react-native
 import { getFix, watchRoute, Fix } from '../gps';
 import { enqueue, saveAsset, saveRoute, newId, listAssets, listRoutes } from '../db';
 import { COLOR, STATUS } from '../theme';
+import { Icon } from '../components/Icon';
 import { pinStatus } from '../pinStatus';
 import { notify } from '../notify';
 
@@ -111,7 +112,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       </MapView>
 
       <TouchableOpacity style={s.backBtn} onPress={onBack}>
-        <Text style={s.backIcon}>←</Text>
+        <Icon name="back" size={20} color={COLOR.primary900} />
       </TouchableOpacity>
 
       {/* Pin-drop confirm sheet */}

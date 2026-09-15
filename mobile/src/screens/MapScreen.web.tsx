@@ -30,6 +30,7 @@ import {
 } from '../db';
 import { authed } from '../auth';
 import { COLOR, SPACE, RADIUS, ELEVATION, STATUS, MIN_TOUCH, FONT } from '../theme';
+import { Icon } from '../components/Icon';
 import { SecondaryFab } from '../components/Fab';
 import { pinStatus, pinShape, type PinStatusName } from '../pinStatus';
 
@@ -1037,7 +1038,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
       <TouchableOpacity style={s.backBtn} onPress={onBack}>
-        <Text style={s.backIcon}>←</Text>
+        <Icon name="back" size={20} color={COLOR.primary900} />
       </TouchableOpacity>
 
       {/* Pin-drop confirm sheet — the map's quick tap-to-drop flow stays a
@@ -1252,12 +1253,12 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       {/* Top-right FAB stack — zoom/recenter/layers (not shown in the
           redesign comp, additive and non-conflicting with it). */}
       <View style={s.fabStack}>
-        <SecondaryFab icon="▧" active={showBuildings} onPress={toggleBuildings} />
-        <SecondaryFab icon="▦" active={showNetwork} onPress={toggleNetwork} />
-        <SecondaryFab icon="◐" active={showSatellite} onPress={toggleSatellite} />
-        <SecondaryFab icon="+" onPress={() => mapRef.current?.zoomIn()} />
-        <SecondaryFab icon="−" onPress={() => mapRef.current?.zoomOut()} />
-        <SecondaryFab icon="◎" onPress={recenter} />
+        <SecondaryFab icon="layerBuildings" active={showBuildings} onPress={toggleBuildings} />
+        <SecondaryFab icon="layerNetwork" active={showNetwork} onPress={toggleNetwork} />
+        <SecondaryFab icon="layerSatellite" active={showSatellite} onPress={toggleSatellite} />
+        <SecondaryFab icon="zoomIn" onPress={() => mapRef.current?.zoomIn()} />
+        <SecondaryFab icon="zoomOut" onPress={() => mapRef.current?.zoomOut()} />
+        <SecondaryFab icon="locate" onPress={recenter} />
       </View>
 
       {/* Bottom panel — 2-way segmented Manhole/Handhole toggle + full-width

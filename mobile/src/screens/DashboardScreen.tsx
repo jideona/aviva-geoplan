@@ -17,6 +17,7 @@ import { pinStatus, pinShape, type PinStatusName } from '../pinStatus';
 import SwipeableRow from '../components/SwipeableRow';
 import BottomSheet from '../components/BottomSheet';
 import RecordDetail, { type DetailItem } from '../components/RecordDetail';
+import { Icon, type IconName } from '../components/Icon';
 
 type CaptureItem = {
   clientId: string; isRoute: boolean; label: string; meta: string;
@@ -239,7 +240,7 @@ export default function DashboardScreen({
         <View style={s.headerTop}>
           <Text style={s.headerTitle} numberOfLines={1}>{projectName}</Text>
           <TouchableOpacity onPress={() => setMenuOpen(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={s.kebab}>⋮</Text>
+            <Icon name="more" size={22} color="#fff" />
           </TouchableOpacity>
         </View>
         <View style={s.statusRow}>
@@ -266,29 +267,29 @@ export default function DashboardScreen({
 
             <Text style={s.sectionLabel}>DISTRICT PROGRESS</Text>
             <View style={s.kpiGrid}>
-              <KpiTile icon="\u2302" label="Buildings surveyed"
+              <KpiTile icon="building" label="Buildings surveyed"
                 value={buildingSurveyed == null ? '\u2014' : String(buildingSurveyed)}
                 unit={`/${buildingTotal == null ? '\u2014' : buildingTotal}`}
                 pct={buildingTotal ? (buildingSurveyed! / buildingTotal) * 100 : 0} />
-              <KpiTile icon="\u25A2" label="Manholes & handholes synced"
+              <KpiTile icon="manhole" label="Manholes & handholes synced"
                 value={String(pointAssetsSynced)} unit={`/${pointAssets.length}`}
                 pct={pointAssets.length ? (pointAssetsSynced / pointAssets.length) * 100 : 0} />
-              <KpiTile icon="\u25B3" label="Flagged \u2014 needs attention"
+              <KpiTile icon="flagged" label="Flagged \u2014 needs attention"
                 value={String(flaggedCaptures)} unit={`/${totalCaptures}`}
                 pct={totalCaptures ? (flaggedCaptures / totalCaptures) * 100 : 0} alert />
-              <KpiTile icon="\u21C6" label="Captures synced"
+              <KpiTile icon="synced" label="Captures synced"
                 value={String(syncedCaptures)} unit={`/${totalCaptures}`}
                 pct={totalCaptures ? (syncedCaptures / totalCaptures) * 100 : 0} />
             </View>
 
             <Text style={s.sectionLabel}>QUICK ACTIONS</Text>
             <View style={s.quickGrid}>
-              <QuickTile icon="\u25C9" label="Map & Routes" onPress={onOpenMap} />
-              <QuickTile icon="\u25A2" label="Manhole Data" onPress={() => onCapture('manhole')} />
-              <QuickTile icon="\u2302" label="Building Info" onPress={() => onCapture('building')} />
-              <QuickTile icon="\u25A3" label="Building Photo" onPress={() => onCapture('building_photo')} />
-              <QuickTile icon="\u21BA" label="Resume Draft" badge={drafts.length || undefined} onPress={onTapResumeDraft} />
-              <QuickTile icon="\u21E7" label="Uploaded Data" onPress={onTapUploadedData} />
+              <QuickTile icon="map" label="Map & Routes" onPress={onOpenMap} />
+              <QuickTile icon="manhole" label="Manhole Data" onPress={() => onCapture('manhole')} />
+              <QuickTile icon="building" label="Building Info" onPress={() => onCapture('building')} />
+              <QuickTile icon="photo" label="Building Photo" onPress={() => onCapture('building_photo')} />
+              <QuickTile icon="resumeDraft" label="Resume Draft" badge={drafts.length || undefined} onPress={onTapResumeDraft} />
+              <QuickTile icon="uploadedData" label="Uploaded Data" onPress={onTapUploadedData} />
             </View>
 
             <Text style={s.sectionLabel}>RECENT CAPTURES</Text>
@@ -313,7 +314,7 @@ export default function DashboardScreen({
                     </View>
                   ) : item.shape === 'house' ? (
                     <View style={[s.avatar, { backgroundColor: STATUS[item.status] }]}>
-                      <Text style={s.avatarHouseGlyph}>⌂</Text>
+                      <Icon name="building" size={15} color="#fff" />
                     </View>
                   ) : (
                     <View style={[s.avatar, item.shape === 'square' && s.avatarSquare, { backgroundColor: STATUS[item.status] }]} />
@@ -391,13 +392,13 @@ function ProgressRing({ pct, color }: { pct: number; color: string }) {
 // "needs attention" (never used decoratively elsewhere, per theme.ts's
 // FAB_PRIMARY_COLOR comment on the same orange-is-reserved rule).
 function KpiTile({ icon, label, value, unit, pct, alert }: {
-  icon: string; label: string; value: string; unit: string; pct: number; alert?: boolean;
+  icon: IconName; label: string; value: string; unit: string; pct: number; alert?: boolean;
 }) {
   return (
     <View style={[s.kpiTile, alert && s.kpiTileAlert]}>
       <View style={s.kpiTop}>
         <View style={[s.kpiIconWell, alert && s.kpiIconWellAlert]}>
-          <Text style={[s.kpiIconGlyph, alert && { color: COLOR.accent700 }]}>{icon}</Text>
+          <Icon name={icon} size={16} color={alert ? COLOR.accent700 : COLOR.primary900} />
         </View>
         <ProgressRing pct={pct} color={alert ? COLOR.accent500 : COLOR.primary900} />
       </View>
@@ -416,12 +417,12 @@ function KpiTile({ icon, label, value, unit, pct, alert }: {
 // count dot on the icon well — used for Resume Draft so a surveyor can see
 // there's something to resume without opening the sheet.
 function QuickTile({ icon, label, onPress, badge }: {
-  icon: string; label: string; onPress: () => void; badge?: number;
+  icon: IconName; label: string; onPress: () => void; badge?: number;
 }) {
   return (
     <TouchableOpacity style={s.quickTile} onPress={onPress}>
       <View style={s.quickIconWell}>
-        <Text style={s.quickIconGlyph}>{icon}</Text>
+        <Icon name={icon} size={20} color={COLOR.primary900} />
         {!!badge && (
           <View style={s.quickBadge}><Text style={s.quickBadgeText}>{badge > 9 ? '9+' : badge}</Text></View>
         )}
