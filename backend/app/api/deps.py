@@ -46,3 +46,21 @@ def require(permission: Permission):
             )
         return user
     return _guard
+
+
+def require_any(*permissions: Permission):
+    """Route dependency allowing any one of several permissions.
+
+    Used where a mobile-scoped permission (e.g. BUILDING_FIELD_UPDATE) should
+    unlock the same endpoint a full desktop permission (BUILDING_EDIT)
+    already does, without granting the broader one to field roles.
+    """
+    def _guard(user: CurrentUser) -> User:
+        if not any(has_permission(user.roles, p) for p in permissions):
+            names = ", ".join(p.value for p in permissions)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Your role does not permit any of: {names}.",
+            )
+        return user
+    return _guard

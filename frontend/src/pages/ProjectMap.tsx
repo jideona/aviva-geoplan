@@ -34,6 +34,94 @@ import StatusStrip from '../components/StatusStrip'
  */
 const STYLE_URL = import.meta.env.VITE_BASEMAP_STYLE_URL as string | undefined
 
+/**
+ * Field-activity annotation. The API sends raw created_at/updated_at (and, for
+ * buildings, last_edited_by); everything from here down is display-only
+ * bucketing done client-side rather than in MapLibre expressions, because
+ * MapLibre's style spec has no date-parsing — comparing ISO strings to "now"
+ * has to happen once, in JS, when the data lands.
+ *
+ * "New" and "modified" are deliberately time-boxed rather than permanent
+ * flags: a building edited two years ago should fade back to the ordinary
+ * licence/coverage colouring, not stay highlighted forever.
+ */
+const ACTIVITY_NEW_DAYS = 14
+const ACTIVITY_RECENT_DAYS = 30
+
+function daysSince(iso: unknown): number {
+  if (typeof iso !== 'string') return Infinity
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return Infinity
+  return (Date.now() - t) / 86_400_000
+}
+
+/** Buildings carry both an import baseline (created_at) and a possible field
+ * edit (last_edited_by/updated_at), so they get the full three-way bucket:
+ * a hand-drawn building captured within ACTIVITY_NEW_DAYS reads as "new" even
+ * if a surveyor also touched it since (new beats modified). */
+type FC = { type: string; features: GeoJSON.Feature[] }
+
+function withBuildingActivity(fc: FC): FC {
+  return {
+    ...fc,
+    features: fc.features.map((f) => {
+      const p = f.properties ?? {}
+      const fieldTouched = !!p.last_edited_by
+
+      const createdMs = typeof p.created_at === 'string'
+        ? new Date(p.created_at).getTime()
+        : NaN
+
+      const updatedMs = typeof p.updated_at === 'string'
+        ? new Date(p.updated_at).getTime()
+        : NaN
+
+      const editedSinceCreation =
+        Number.isFinite(createdMs) &&
+        Number.isFinite(updatedMs) &&
+        (updatedMs - createdMs) > 60_000
+
+      const isNew =
+        fieldTouched &&
+        !editedSinceCreation &&
+        daysSince(p.created_at) <= ACTIVITY_NEW_DAYS
+
+      const isModified =
+        fieldTouched &&
+        editedSinceCreation &&
+        daysSince(p.updated_at) <= ACTIVITY_RECENT_DAYS
+      return { ...f, properties: { ...p, activity: isNew ? 'new' : isModified ? 'modified' : 'none' } }
+    }),
+  }
+}
+
+/** Manholes, building photos and as-walked routes are always field-native —
+ * every row starts life field_observed, so there is no "imported baseline"
+ * the way there is for buildings. They still distinguish three states,
+ * exactly like buildings do, just with a different "modified" test: instead
+ * of checking last_edited_by (buildings can be untouched-since-import
+ * forever), a field-native row is "modified" once its updated_at has moved
+ * meaningfully past its created_at — i.e. something happened to it (a
+ * condition reassessed, a position corrected) after the original capture.
+ * The one-minute gap avoids the row's own INSERT/DEFAULT timestamps (often
+ * within the same transaction) reading as a false "modified".
+ */
+function withFieldCaptureActivity(fc: FC): FC {
+  return {
+    ...fc,
+    features: fc.features.map((f) => {
+      const p = f.properties ?? {}
+      const isNew = daysSince(p.created_at) <= ACTIVITY_NEW_DAYS
+      const createdMs = typeof p.created_at === 'string' ? new Date(p.created_at).getTime() : NaN
+      const updatedMs = typeof p.updated_at === 'string' ? new Date(p.updated_at).getTime() : NaN
+      const editedSinceCapture = Number.isFinite(createdMs) && Number.isFinite(updatedMs)
+        && (updatedMs - createdMs) > 60_000
+      const isModified = !isNew && editedSinceCapture && daysSince(p.updated_at) <= ACTIVITY_RECENT_DAYS
+      return { ...f, properties: { ...p, activity: isNew ? 'new' : isModified ? 'modified' : 'none' } }
+    }),
+  }
+}
+
 
 /**
  * Glyphs are served from the app's own /public/fonts, generated with fontnik.
@@ -217,7 +305,7 @@ export default function ProjectMap() {
       ready.current = true
       setMapReady(true)
       setZoom(m.getZoom())
-      for (const src of ['boundary', 'buildings', 'streets', 'design', 'parcels', 'routes', 'drops', 'corridors', 'detect-preview', 'noc', 'ring', 'areas', 'manholes', 'building_photos']) {
+      for (const src of ['boundary', 'buildings', 'streets', 'design', 'parcels', 'routes', 'drops', 'corridors', 'detect-preview', 'noc', 'ring', 'areas', 'manholes', 'building_photos', 'survey_routes']) {
         m.addSource(src, { type: 'geojson', data: EMPTY })
       }
       // Fault-isolate every layer add. Before this, one bad addLayer threw and
@@ -316,13 +404,24 @@ export default function ProjectMap() {
         },
         paint: { 'text-color': '#0D1B4B', 'text-halo-color': '#fff',
                  'text-halo-width': 1.5 } })
-      addLayer({ id: 'buildings-line', type: 'line', source: 'buildings',
+      addLayer({
+        id: 'buildings-line', type: 'line', source: 'buildings',
         minzoom: 12,
         paint: {
-          'line-color': '#0D1B4B',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.6, 16, 1.2],
-          'line-opacity': 0.85,
-        } })
+          // Recency overrides the ordinary navy outline so a building that
+          // just arrived — or was just edited — from the field stands out
+          // without disturbing the fill colour's licence/coverage meaning.
+          'line-color': ['match', ['get', 'activity'],
+            'new', '#16A34A',        // green — captured within ACTIVITY_NEW_DAYS
+            'modified', '#F59E0B',   // amber — field-edited within ACTIVITY_RECENT_DAYS
+            '#0D1B4B'],              // untouched — the original navy outline
+          'line-width': ['case',
+            ['!=', ['get', 'activity'], 'none'],
+            ['interpolate', ['linear'], ['zoom'], 12, 1.6, 16, 2.6],
+            ['interpolate', ['linear'], ['zoom'], 12, 0.6, 16, 1.2]],
+          'line-opacity': 0.9,
+        }
+      })
       // Named roads read as confirmed; unnamed ones as outstanding work.
       addLayer({ id: 'streets-line', type: 'line', source: 'streets',
         paint: {
@@ -595,15 +694,26 @@ export default function ProjectMap() {
       m.on('click', 'buildings-fill', (e) => {
         const f = e.features?.[0]
         if (!f) return
+        const lastEditedBy = f.properties?.last_edited_by
         setInspector({
           title: String(f.properties?.code ?? 'Unnumbered'),
-          subtitle: f.properties?.serving_fat
-            ? `served by ${f.properties.serving_fat}` : undefined,
+          subtitle: f.properties?.activity === 'new' ? 'new — captured recently'
+            : f.properties?.activity === 'modified' ? 'modified recently'
+              : f.properties?.serving_fat ? `served by ${f.properties.serving_fat}` : undefined,
           rows: [
             { label: 'Area', value: `${Number(f.properties?.area).toFixed(0)} m²` },
             { label: 'Dataset', value: String(f.properties?.dataset ?? '—') },
             { label: 'Source age', value: `${f.properties?.source_age_years ?? '?'} yr` },
             { label: 'Currency', value: String(f.properties?.currency ?? '—') },
+            // Only meaningful once a surveyor has actually touched the
+            // record — an imported-only building has never been edited.
+            ...(lastEditedBy ? [
+              { label: 'Last edited by', value: String(lastEditedBy) },
+              {
+                label: 'Updated', value: f.properties?.updated_at
+                  ? new Date(String(f.properties.updated_at)).toLocaleString() : '—'
+              },
+            ] : []),
           ],
           media: f.properties?.building_id
             ? { projectId: id, entityType: 'building', entityId: String(f.properties.building_id) }
@@ -614,7 +724,8 @@ export default function ProjectMap() {
       m.on('mouseleave', 'buildings-fill', () => { m.getCanvas().style.cursor = '' })
       // Field-surveyed chambers — condition read at a glance, photos/video one
       // click away via the inspector's media strip.
-      addLayer({ id: 'manhole-point', type: 'circle', source: 'manholes',
+      addLayer({
+        id: 'manhole-point', type: 'circle', source: 'manholes',
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 18, 7],
           'circle-color': ['match', ['get', 'condition'],
@@ -622,52 +733,134 @@ export default function ProjectMap() {
             'poor', '#B45309', 'damaged', '#E5484D',
             'buried', '#8FA3BF', 'inaccessible', '#E5484D',
             '#5A739A'],                                       // unknown
-          'circle-stroke-width': 1.5, 'circle-stroke-color': '#ffffff',
-        } })
-      m.on('click', 'manhole-point', (e) => {
+          // Condition still owns the fill; the same green/amber halo used
+          // for buildings' outline says "new" vs "modified since capture" —
+          // an existing, unchanged manhole/handhole keeps a plain white ring.
+          'circle-stroke-width': ['match', ['get', 'activity'],
+            'new', 3, 'modified', 3, 1.5],
+          'circle-stroke-color': ['match', ['get', 'activity'],
+            'new', '#16A34A', 'modified', '#F59E0B', '#ffffff'],
+        }
+      })
+      // Keep the condition/activity circle as the halo, then draw a stable
+      // type glyph on top so manholes and handholes remain distinguishable at
+      // office-map scale.
+      addLayer({
+        id: 'manhole-type-symbol', type: 'symbol', source: 'manholes',
+        layout: {
+          'text-field': ['match', ['get', 'type'],
+            'handhole', '▲', 'manhole', '■', '◆'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 13, 8, 18, 14],
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#1B2B41',
+          'text-halo-width': 1,
+        }
+      })
+      m.on('click', ['manhole-point', 'manhole-type-symbol'], (e) => {
         const f = e.features?.[0]
         if (!f) return
         const manholeId = String(f.properties?.id ?? '')
+        const activityNote = f.properties?.activity === 'new' ? 'new — captured recently'
+          : f.properties?.activity === 'modified' ? 'modified recently' : undefined
         setInspector({
           title: String(f.properties?.code || 'Manhole'),
-          subtitle: String(f.properties?.type ?? ''),
+          subtitle: [String(f.properties?.type ?? ''), activityNote].filter(Boolean).join(' · '),
           rows: [
             { label: 'Condition', value: String(f.properties?.condition ?? 'unknown') },
             { label: 'Surveyed by', value: String(f.properties?.surveyed_by ?? '—') },
-            { label: 'Assessed', value: f.properties?.assessed_at
-                ? new Date(String(f.properties.assessed_at)).toLocaleDateString() : '—' },
+            {
+              label: 'Assessed', value: f.properties?.assessed_at
+                ? new Date(String(f.properties.assessed_at)).toLocaleDateString() : '—'
+            },
+            {
+              label: 'Captured', value: f.properties?.created_at
+                ? new Date(String(f.properties.created_at)).toLocaleDateString() : '—'
+            },
           ],
           note: f.properties?.notes ? String(f.properties.notes) : undefined,
           media: { projectId: id, entityType: 'manhole', entityId: manholeId },
         })
       })
-      m.on('mouseenter', 'manhole-point', () => { m.getCanvas().style.cursor = 'pointer' })
-      m.on('mouseleave', 'manhole-point', () => { m.getCanvas().style.cursor = '' })
+      m.on('mouseenter', ['manhole-point', 'manhole-type-symbol'], () => { m.getCanvas().style.cursor = 'pointer' })
+      m.on('mouseleave', ['manhole-point', 'manhole-type-symbol'], () => { m.getCanvas().style.cursor = '' })
       // Quick building-photo captures from the mobile app — a distinct warm
       // colour (not the manhole condition palette, and not FAT/FDH's navy)
       // so it reads as "a photo was taken here", one click away via the
       // inspector's media strip, same pattern as manholes/buildings above.
-      addLayer({ id: 'building-photo-point', type: 'circle', source: 'building_photos',
+      addLayer({
+        id: 'building-photo-point', type: 'circle', source: 'building_photos',
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 18, 7],
           'circle-color': '#E8590C',
-          'circle-stroke-width': 1.5, 'circle-stroke-color': '#ffffff',
-        } })
+          // Same new/modified halo as manholes, above.
+          'circle-stroke-width': ['match', ['get', 'activity'],
+            'new', 3, 'modified', 3, 1.5],
+          'circle-stroke-color': ['match', ['get', 'activity'],
+            'new', '#16A34A', 'modified', '#F59E0B', '#ffffff'],
+        }
+      })
       m.on('click', 'building-photo-point', (e) => {
         const f = e.features?.[0]
         if (!f) return
         const photoId = String(f.properties?.id ?? '')
+        const activityNote = f.properties?.activity === 'new' ? 'new — captured recently'
+          : f.properties?.activity === 'modified' ? 'modified recently' : undefined
         setInspector({
           title: 'Building photo',
-          subtitle: f.properties?.surveyed_by ? `captured by ${f.properties.surveyed_by}` : undefined,
-          rows: f.properties?.updated_at
-            ? [{ label: 'Captured', value: new Date(String(f.properties.updated_at)).toLocaleDateString() }]
+          subtitle: [f.properties?.surveyed_by ? `captured by ${f.properties.surveyed_by}` : undefined,
+            activityNote].filter(Boolean).join(' · '),
+          rows: f.properties?.created_at
+            ? [{ label: 'Captured', value: new Date(String(f.properties.created_at)).toLocaleDateString() }]
             : [],
           media: { projectId: id, entityType: 'building_photo', entityId: photoId },
         })
       })
       m.on('mouseenter', 'building-photo-point', () => { m.getCanvas().style.cursor = 'pointer' })
       m.on('mouseleave', 'building-photo-point', () => { m.getCanvas().style.cursor = '' })
+
+      // Field-recorded ("as-walked") cable routes — a surveyor logs GPS
+      // points while walking a proposed duct/trench path. Deliberately a
+      // separate source/layer from 'routes' above: that source is the
+      // planning engine's COMPUTED feeder/distribution design, not what was
+      // actually walked on site. Distinct dash pattern + colour keeps the two
+      // from ever being mistaken for one another on a busy map.
+      addLayer({
+        id: 'survey-route-line', type: 'line', source: 'survey_routes',
+        paint: {
+          'line-color': ['match', ['get', 'activity'],
+            'new', '#16A34A', 'modified', '#F59E0B', '#7C3AED'],  // violet — as-walked, existing
+          'line-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 17, 4],
+          'line-dasharray': [2, 1.5],
+        }
+      })
+      m.on('click', 'survey-route-line', (e) => {
+        const f = e.features?.[0]
+        if (!f) return
+        const routeId = String(f.properties?.id ?? '')
+        const activityNote = f.properties?.activity === 'new' ? 'new — recorded recently'
+          : f.properties?.activity === 'modified' ? 'modified recently' : 'as-walked'
+        setInspector({
+          title: String(f.properties?.code || 'Cable route'),
+          subtitle: [String(f.properties?.type ?? 'cable_route'), activityNote].filter(Boolean).join(' · '),
+          rows: [
+            { label: 'Surveyed by', value: String(f.properties?.surveyed_by ?? '—') },
+            { label: 'Length', value: `${Math.round(Number(f.properties?.length_m ?? 0))} m` },
+            { label: 'Points', value: String(f.properties?.points ?? '—') },
+            {
+              label: 'Recorded', value: f.properties?.created_at
+                ? new Date(String(f.properties.created_at)).toLocaleString() : '—'
+            },
+          ],
+          media: { projectId: id, entityType: 'survey_route', entityId: routeId },
+        })
+      })
+      m.on('mouseenter', 'survey-route-line', () => { m.getCanvas().style.cursor = 'pointer' })
+      m.on('mouseleave', 'survey-route-line', () => { m.getCanvas().style.cursor = '' })
+
       if (failedLayers.length) {
         setMapError(`${failedLayers.length} map layer(s) failed to initialise: ` +
           `${failedLayers.join(', ')}. The rest are shown; check the console.`)
@@ -686,18 +879,19 @@ export default function ProjectMap() {
     // minutes — awaiting it in this batch blocked every other layer from
     // rendering. It now loads lazily, only when the Drops layer is toggled on
     // (see the drops effect below).
-    const [b, s, d, p, co, noc, mh, bp] = await Promise.allSettled([
+    const [b, s, d, p, co, noc, mh, bp, sr] = await Promise.allSettled([
       api.buildingsGeoJSON(id), api.streetsGeoJSON(id), api.designGeoJSON(id),
       api.parcelsGeoJSON(id), api.corridorsGeoJSON(id), api.nocGeoJSON(id),
-      api.manholesGeoJSON(id), api.buildingPhotosGeoJSON(id),
+      api.manholesGeoJSON(id), api.buildingPhotosGeoJSON(id), api.surveyRoutesGeoJSON(id),
     ])
     if (noc.status === 'fulfilled') setData(m, 'noc', noc.value)
     if (p.status === 'fulfilled') setData(m, 'parcels', p.value)
     if (d.status === 'fulfilled') setData(m, 'design', d.value)
     if (co.status === 'fulfilled') setData(m, 'corridors', co.value)
-    if (b.status === 'fulfilled') setData(m, 'buildings', b.value)
-    if (mh.status === 'fulfilled') setData(m, 'manholes', mh.value)
-    if (bp.status === 'fulfilled') setData(m, 'building_photos', bp.value)
+    if (b.status === 'fulfilled') setData(m, 'buildings', withBuildingActivity(b.value))
+    if (mh.status === 'fulfilled') setData(m, 'manholes', withFieldCaptureActivity(mh.value))
+    if (bp.status === 'fulfilled') setData(m, 'building_photos', withFieldCaptureActivity(bp.value))
+    if (sr.status === 'fulfilled') setData(m, 'survey_routes', withFieldCaptureActivity(sr.value))
     const reason = (r: PromiseSettledResult<unknown>) =>
       r.status === 'rejected'
         ? (r.reason instanceof Error ? r.reason.message : String(r.reason))
@@ -883,6 +1077,8 @@ export default function ProjectMap() {
             open={openSections.has('project')} onToggle={toggleSection}>
             <Link to={`/projects/${id}/register`}
                   className="btn-primary mt-1 w-full">Building register →</Link>
+            <Link to={`/projects/${id}/field-activity`}
+                  className="btn-ghost mt-1.5 w-full">Field activity →</Link>
 
             <dl className="mt-4 space-y-2 border-t border-lightgrey pt-3 text-sm">
               <Row label="Code prefix" value={project?.code_prefix} mono />
@@ -1035,7 +1231,7 @@ export default function ProjectMap() {
                            { value: 'edit', label: 'Edit' },
                            { value: 'review', label: 'Review' }]}>
                 {designTab === 'layer' && (
-                  <LayerControl visibility={visibility} onChange={setVisibility} />
+                  <LayerControl visibility={visibility} onChange={setVisibility} projectId={id} />
                 )}
 
                 {designTab === 'edit' && can('gis:edit') && (

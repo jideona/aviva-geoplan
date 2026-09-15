@@ -8,8 +8,10 @@ from shapely.ops import transform
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models.building import Building
+from app.db.models.building import BUILDING_CONDITIONS, Building
 from app.db.models.project import Project
+from app.db.models.building_manhole_link import BuildingManholeLink
+from app.db.models.manhole import Manhole
 from app.db.models.provenance import DataSource, ProvenanceRecord
 from app.db.models.user import User
 from app.domain.building_edit import CaptureSource, rules_for
@@ -83,6 +85,7 @@ def create_building(db: Session, user: User, project: Project,
         data_source_id=src.id, source_dataset=name,
         licence_class=rules["licence_class"],
         verification_state=rules["verification_state"],
+        last_edited_by=user.email,
         detection_confidence=1.0)
     db.add(b)
     db.flush()
@@ -120,6 +123,7 @@ def move_building(db: Session, user: User, project: Project,
     b.centroid = from_shape(geom.centroid, srid=4326)
     b.footprint_area_sqm = round(metric.area, 2)
     b.perimeter_m = round(metric.length, 2)
+    b.last_edited_by = user.email
     audit_service.record(db, actor=user, entity_type="building", entity_id=b.id,
                          action="edit_geometry", project_id=project.id,
                          changes=audit_service.diff(before,
@@ -152,6 +156,7 @@ def set_excluded(db: Session, user: User, project: Project,
     before = {"excluded": b.excluded}
     b.excluded = excluded
     b.excluded_reason = reason if excluded else None
+    b.last_edited_by = user.email
     if excluded:
         b.serving_zone_id = None      # drop it out of any current design
     audit_service.record(db, actor=user, entity_type="building", entity_id=b.id,
@@ -163,7 +168,13 @@ def set_excluded(db: Session, user: User, project: Project,
 
 
 _TYPES = ("unclassified", "residential", "commercial", "mixed_use",
-          "industrial", "institutional", "religious", "under_construction", "other")
+          "industrial", "institutional", "religious", "under_construction",
+          # Row/terrace typology (SRD: surveyors capturing a block that is
+          # actually N terrace units, see units_surveyed below) — was missing
+          # here even though the Building model's own BUILDING_TYPES has
+          # long included "terrace"; field updates using it were silently
+          # rejected by this separate validation list.
+          "terrace", "other")
 _USES = ("unknown", "single_dwelling", "apartments", "shop", "office",
          "warehouse", "school", "clinic", "worship", "mixed", "other")
 
@@ -178,13 +189,15 @@ def nearest(db: Session, project: Project, lat: float, lon: float,
     rows = db.execute(
         select(Building.id, Building.building_code, Building.building_type,
                Building.use_type, Building.address, Building.units_surveyed,
-               Building.drop_deployment, Building.notes, dist.label("dist"))
+               Building.drop_deployment, Building.notes, Building.condition,
+               dist.label("dist"))
         .where(Building.project_id == project.id, Building.excluded.is_(False))
         .order_by(dist).limit(limit)).all()
     return [{"id": str(r.id), "code": r.building_code,
              "building_type": r.building_type, "use_type": r.use_type,
              "address": r.address, "units_surveyed": r.units_surveyed,
              "drop_deployment": r.drop_deployment, "notes": r.notes,
+             "condition": r.condition,
              "distance_m": round(r.dist, 1)} for r in rows]
 
 
@@ -207,14 +220,19 @@ def update_attributes(db: Session, user: User, project: Project,
             "aerial", "underground", None):
         raise BuildingEditError(
             "drop_deployment must be 'aerial', 'underground' or null.")
+    if "condition" in attrs and attrs["condition"] is not None \
+            and attrs["condition"] not in BUILDING_CONDITIONS:
+        raise BuildingEditError(
+            f"condition must be one of {', '.join(BUILDING_CONDITIONS)}, or null.")
 
     before = {}
     for field in ("building_type", "use_type", "address", "units_surveyed",
-                  "drop_deployment", "notes"):
+                  "drop_deployment", "notes", "condition"):
         if field in attrs:
             before[field] = getattr(b, field)
             setattr(b, field, attrs[field])
     b.verification_state = "field_observed"        # field capture is authoritative
+    b.last_edited_by = user.email
     audit_service.record(db, actor=user, entity_type="building", entity_id=b.id,
                          action="field_update", project_id=project.id,
                          changes=audit_service.diff(
@@ -224,7 +242,44 @@ def update_attributes(db: Session, user: User, project: Project,
             "use_type": b.use_type, "address": b.address,
             "units_surveyed": b.units_surveyed,
             "drop_deployment": b.drop_deployment, "notes": b.notes,
+            "condition": b.condition,
             "verification_state": b.verification_state}
+
+
+def link_manholes(db: Session, user: User, project: Project,
+                  building_id: uuid.UUID, manhole_ids: list[uuid.UUID]) -> dict:
+    """Replace this building's "Associated Assets" — the manholes it's linked
+    to. Full-replace semantics (not add/remove) to match the field app's
+    fixed picker slots: sending [] clears all links. Silently drops any id
+    that isn't actually a manhole in this project, rather than failing the
+    whole save over one bad reference.
+    """
+    b = db.scalar(select(Building).where(Building.id == building_id,
+                                         Building.project_id == project.id))
+    if b is None:
+        raise BuildingEditError("Building not found.")
+    valid_ids = set(db.scalars(select(Manhole.id).where(
+        Manhole.project_id == project.id, Manhole.id.in_(manhole_ids))))
+    for link in list(db.scalars(select(BuildingManholeLink).where(
+            BuildingManholeLink.building_id == building_id))):
+        db.delete(link)
+    for mid in dict.fromkeys(manhole_ids):
+        if mid in valid_ids:
+            db.add(BuildingManholeLink(building_id=building_id, manhole_id=mid,
+                                       created_by=user.email))
+    db.commit()
+    return linked_manholes(db, project, building_id)
+
+
+def linked_manholes(db: Session, project: Project, building_id: uuid.UUID) -> dict:
+    rows = db.execute(
+        select(Manhole.id, Manhole.code, Manhole.manhole_type)
+        .join(BuildingManholeLink, BuildingManholeLink.manhole_id == Manhole.id)
+        .where(BuildingManholeLink.building_id == building_id,
+               Manhole.project_id == project.id)).all()
+    return {"linked_manholes": [
+        {"id": str(mid), "code": code, "manhole_type": mtype}
+        for mid, code, mtype in rows]}
 
 
 def cleanup_noise(db: Session, user: User, project: Project,

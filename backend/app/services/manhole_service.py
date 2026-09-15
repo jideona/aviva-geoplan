@@ -22,6 +22,22 @@ class ManholeError(ValueError):
     """Message is safe to show the user."""
 
 
+def nearest(db: Session, project: Project, lat: float, lon: float,
+           limit: int = 15) -> list[dict]:
+    """Manholes closest to a GPS point — for the Update Building screen's
+    Associated Assets picker (mirrors building_edit_service.nearest)."""
+    from sqlalchemy import func
+    pt = func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)
+    dist = func.ST_DistanceSphere(Manhole.geom, pt)
+    rows = db.execute(
+        select(Manhole.id, Manhole.code, Manhole.manhole_type, Manhole.condition,
+               dist.label("dist"))
+        .where(Manhole.project_id == project.id, Manhole.excluded.is_(False))
+        .order_by(dist).limit(limit)).all()
+    return [{"id": str(r.id), "code": r.code, "manhole_type": r.manhole_type,
+             "condition": r.condition, "distance_m": round(r.dist, 1)} for r in rows]
+
+
 def create(db: Session, user: User, project: Project, *, lon: float, lat: float,
            manhole_type: str = "manhole", condition: str = "unknown",
            code: str | None = None, condition_notes: str | None = None,
@@ -120,6 +136,11 @@ def geojson(db: Session, project: Project, since: datetime | None = None) -> dic
                        "condition": m.condition, "notes": m.condition_notes,
                        "surveyed_by": m.surveyed_by,
                        "assessed_at": m.assessed_at.isoformat() if m.assessed_at else None,
+                       # created_at/updated_at let the map (and any other
+                       # consumer) tell a manhole/handhole just captured from
+                       # one that already existed and was only reassessed —
+                       # same recency signal buildings.geojson carries.
+                       "created_at": m.created_at.isoformat(),
                        "updated_at": m.updated_at.isoformat()}}
         for m in db.scalars(q)]
     return {"type": "FeatureCollection", "features": features}

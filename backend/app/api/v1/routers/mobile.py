@@ -12,7 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, DbSession, require
+from app.api.deps import CurrentUser, DbSession, require, require_any
 from app.core.permissions import Permission
 from app.services import (building_edit_service, building_photo_service,
                           manhole_service, media_service, project_service,
@@ -223,6 +223,15 @@ class UpdateBuilding(BaseModel):
     units_surveyed: int | None = None
     drop_deployment: str | None = None      # 'aerial' | 'underground'
     notes: str | None = None
+    condition: str | None = None            # 'excellent' | 'good' | 'fair' | 'poor'
+    # Full-replace list of linked manhole ids ("Associated Assets"); omit to
+    # leave existing links untouched, pass [] to clear them.
+    linked_manhole_ids: list[UUID] | None = None
+
+
+class ExcludeBuilding(BaseModel):
+    excluded: bool = True
+    reason: str | None = None
 
 
 @router.get("/buildings/near")
@@ -233,16 +242,113 @@ def buildings_near(project_id: UUID, lat: float, lon: float, db: DbSession,
     return {"buildings": building_edit_service.nearest(db, project, lat, lon, limit)}
 
 
+@router.get("/manholes/near")
+def manholes_near(project_id: UUID, lat: float, lon: float, db: DbSession,
+                  user: CurrentUser, limit: int = Query(default=15, le=50)) -> dict:
+    """Nearest manholes to a GPS point — for the Update Building screen's
+    Associated Assets picker."""
+    project = _project(db, user, project_id)
+    return {"manholes": manhole_service.nearest(db, project, lat, lon, limit)}
+
+
 @router.patch("/buildings/{building_id}")
 def update_building(project_id: UUID, building_id: UUID, payload: UpdateBuilding,
-                    db: DbSession, user=Depends(require(Permission.BUILDING_EDIT))) -> dict:
+                    db: DbSession,
+                    user=Depends(require_any(Permission.BUILDING_EDIT,
+                                             Permission.BUILDING_FIELD_UPDATE))) -> dict:
     project = _project(db, user, project_id)
+    attrs = payload.model_dump(exclude_none=True, exclude={"linked_manhole_ids"})
     try:
-        return building_edit_service.update_attributes(
-            db, user, project, building_id, payload.model_dump(exclude_none=True))
+        result = building_edit_service.update_attributes(
+            db, user, project, building_id, attrs)
+        if payload.linked_manhole_ids is not None:
+            result.update(building_edit_service.link_manholes(
+                db, user, project, building_id, payload.linked_manhole_ids))
+        return result
     except Exception as exc:                            # noqa: BLE001
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail=str(exc)) from exc
+
+
+@router.patch("/buildings/{building_id}/exclude")
+def exclude_building(project_id: UUID, building_id: UUID, payload: ExcludeBuilding,
+                     db: DbSession,
+                     user=Depends(require_any(Permission.BUILDING_EDIT,
+                                              Permission.BUILDING_FIELD_UPDATE))) -> dict:
+    """Flag a footprint the surveyor found does not exist on the ground (or
+    restore one flagged in error). Reversible soft-delete — see
+    building_edit_service.set_excluded; same mechanism the office map's
+    "Remove building" action uses."""
+    project = _project(db, user, project_id)
+    try:
+        return building_edit_service.set_excluded(
+            db, user, project, building_id, payload.excluded, payload.reason)
+    except Exception as exc:                            # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=str(exc)) from exc
+
+
+# ---- Single-record server confirmation ------------------------------------ #
+# So the field app can show "this reached the server" detail for one capture
+# (per the office/field request to confirm images and coordinates actually
+# arrived) without pulling a whole layer just to find one feature.
+@router.get("/records/{kind}/{record_id}")
+def record_detail(project_id: UUID, kind: str, record_id: UUID, db: DbSession,
+                  user: CurrentUser) -> dict:
+    from geoalchemy2.shape import to_shape
+
+    project = _project(db, user, project_id)
+
+    if kind == "manhole":
+        from app.db.models.manhole import Manhole
+        row = db.get(Manhole, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+        p = to_shape(row.geom)
+        return {"kind": "manhole", "lon": p.x, "lat": p.y, "code": row.code,
+                "condition": row.condition, "surveyed_by": row.surveyed_by,
+                "verification_state": row.verification_state,
+                "updated_at": row.updated_at.isoformat()}
+
+    if kind == "building_photo":
+        from app.db.models.building_photo import BuildingPhoto
+        row = db.get(BuildingPhoto, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+        p = to_shape(row.geom)
+        return {"kind": "building_photo", "lon": p.x, "lat": p.y,
+                "surveyed_by": row.surveyed_by,
+                "verification_state": row.verification_state,
+                "updated_at": row.updated_at.isoformat()}
+
+    if kind == "route":
+        from app.db.models.survey_route import SurveyRoute
+        row = db.get(SurveyRoute, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+        return {"kind": "route", "route_type": row.route_type, "code": row.code,
+                "length_m": float(row.length_m), "point_count": row.point_count,
+                "surveyed_by": row.surveyed_by,
+                "updated_at": row.updated_at.isoformat()}
+
+    if kind == "building":
+        from app.db.models.building import Building
+        row = db.get(Building, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+        return {"kind": "building", "code": row.building_code,
+                "building_type": row.building_type, "address": row.address,
+                "units_surveyed": row.units_surveyed,
+                "drop_deployment": row.drop_deployment,
+                "condition": row.condition,
+                "linked_manholes": building_edit_service.linked_manholes(
+                    db, project, row.id)["linked_manholes"],
+                "last_edited_by": row.last_edited_by,
+                "verification_state": row.verification_state,
+                "updated_at": row.updated_at.isoformat()}
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Unknown record kind.")
 
 
 # ---- Delta sync pull ------------------------------------------------------ #
