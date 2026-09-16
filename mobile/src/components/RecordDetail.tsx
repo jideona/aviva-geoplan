@@ -16,11 +16,13 @@ export type DetailItem = {
   clientId: string; kind: string; label: string; sub?: string;
   lat?: number; lon?: number; accuracy?: number; createdAt: string;
   synced: boolean; serverId?: string | null;
+  source?: 'device' | 'server';
+  needsAttention?: boolean;
 };
 
 const KIND_LABEL: Record<string, string> = {
   manhole: 'Manhole', building: 'Building', building_photo: 'Building photo',
-  route: 'Cable route',
+  route: 'Cable route', street: 'Road / Street',
 };
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -66,20 +68,52 @@ export default function RecordDetail({ item, onClose }: { item: DetailItem | nul
     <BottomSheet visible={!!item} onClose={onClose} title={item.label}>
       <Text style={s.kind}>{KIND_LABEL[item.kind] ?? item.kind}</Text>
 
-      <Text style={s.section}>CAPTURED ON THIS DEVICE</Text>
-      {item.lat != null && item.lon != null && (
-        <Row label="Coordinates" value={`${item.lat.toFixed(5)}, ${item.lon.toFixed(5)}`} />
+      {item.needsAttention && (
+        <View style={[s.statusBanner, s.statusRow, s.statusAttention]}>
+          <Icon name="flagged" size={14} color={COLOR.accent500} />
+          <Text style={[s.statusText, s.statusAttentionText]}>
+            Needs attention
+          </Text>
+        </View>
       )}
-      {item.accuracy != null && <Row label="GPS accuracy" value={`±${Math.round(item.accuracy)}m`} />}
-      <Row label="When" value={new Date(item.createdAt).toLocaleString()} />
-      {item.sub ? <Row label="Detail" value={item.sub} /> : null}
 
-      <View style={[s.statusBanner, s.statusRow, item.synced ? s.statusOk : s.statusPending]}>
-        <Icon name={item.synced ? 'check' : 'pendingDrafts'} size={13} color={item.synced ? '#00887A' : '#4B5563'} />
-        <Text style={[s.statusText, item.synced ? s.statusOkText : s.statusPendingText]}>
-          {item.synced ? 'Sent to the server' : 'Not sent yet — will go out on next sync'}
-        </Text>
-      </View>
+      {item.source === 'server' ? (
+        <>
+          <Text style={s.section}>PROJECT RECORD</Text>
+          {item.sub ? <Row label="Summary" value={item.sub} /> : null}
+          <View style={[s.statusBanner, s.statusRow, s.statusOk]}>
+            <Icon name="check" size={13} color="#00887A" />
+            <Text style={[s.statusText, s.statusOkText]}>
+              Loaded from shared project data
+            </Text>
+          </View>
+        </>
+      ) : (
+        <>
+          <Text style={s.section}>CAPTURED ON THIS DEVICE</Text>
+          {item.lat != null && item.lon != null && (
+            <Row label="Coordinates" value={`${item.lat.toFixed(5)}, ${item.lon.toFixed(5)}`} />
+          )}
+          {item.accuracy != null && (
+            <Row label="GPS accuracy" value={`±${Math.round(item.accuracy)}m`} />
+          )}
+          <Row label="When" value={new Date(item.createdAt).toLocaleString()} />
+          {item.sub ? <Row label="Detail" value={item.sub} /> : null}
+
+          <View style={[s.statusBanner, s.statusRow, item.synced ? s.statusOk : s.statusPending]}>
+            <Icon
+              name={item.synced ? 'check' : 'pendingDrafts'}
+              size={13}
+              color={item.synced ? '#00887A' : '#4B5563'}
+            />
+            <Text style={[s.statusText, item.synced ? s.statusOkText : s.statusPendingText]}>
+              {item.synced
+                ? 'Sent to the server'
+                : 'Not sent yet — will go out on next sync'}
+            </Text>
+          </View>
+        </>
+      )}
 
       {item.synced && item.serverId && (
         <>
@@ -101,6 +135,13 @@ export default function RecordDetail({ item, onClose }: { item: DetailItem | nul
                 <Row label="Server coordinates" value={`${Number(server.lat).toFixed(5)}, ${Number(server.lon).toFixed(5)}`} />
               )}
               {server.condition && <Row label="Condition" value={server.condition} />}
+              {server.name && <Row label="Street name" value={server.name} />}
+              {server.code && <Row label="Code" value={server.code} />}
+              {server.road_class && <Row label="Road class" value={server.road_class} />}
+              {server.surface && <Row label="Surface" value={server.surface} />}
+              {server.access && <Row label="Access" value={server.access} />}
+              {server.width_m != null && <Row label="Width" value={`${Number(server.width_m).toFixed(1)} m`} />}
+              {server.field_notes && <Row label="Field notes" value={server.field_notes} />}
               {server.building_type && <Row label="Building type" value={server.building_type} />}
               {server.address && <Row label="Address" value={server.address} />}
               {server.units_surveyed != null && <Row label="Units" value={String(server.units_surveyed)} />}
@@ -134,6 +175,8 @@ const s = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
   statusOk: { backgroundColor: '#E1F7F1' },
   statusPending: { backgroundColor: '#EEF0F2' },
+  statusAttention: { backgroundColor: '#FFF1EA' },
+  statusAttentionText: { color: COLOR.accent700 },
   statusText: { fontSize: 12, fontWeight: '700' },
   statusOkText: { color: '#00887A' },
   statusPendingText: { color: '#4B5563' },

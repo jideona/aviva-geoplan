@@ -449,6 +449,33 @@ def record_detail(project_id: UUID, kind: str, record_id: UUID, db: DbSession,
                 "verification_state": row.verification_state,
                 "updated_at": row.updated_at.isoformat()}
 
+    if kind == "street":
+        from app.db.models.street import Street
+
+        row = db.get(Street, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="Street not found.")
+
+        return {
+            "kind": "street",
+            "code": row.street_code,
+            "name": row.name,
+            "name_status": row.name_status,
+            "road_class": row.road_class,
+            "surface": row.surface,
+            "condition": row.condition,
+            "access": row.access,
+            "width_m": float(row.width_m) if row.width_m is not None else None,
+            "field_notes": row.field_notes,
+            "surveyed_by": row.surveyed_by,
+            "last_edited_by": row.last_edited_by,
+            "assessed_at": row.assessed_at.isoformat() if row.assessed_at else None,
+            "verification_state": row.verification_state,
+            "created_at": row.created_at.isoformat(),
+            "updated_at": row.updated_at.isoformat(),
+        }
+
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Unknown record kind.")
 
