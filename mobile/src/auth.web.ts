@@ -10,6 +10,9 @@ import { getApiBase } from './config';
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
+const refreshListeners: Array<() => void> = [];
+export function onTokenRefreshed(cb: () => void) { refreshListeners.push(cb); }
+
 function getItem(key: string): string | null {
   try { return window.localStorage.getItem(key); } catch { return null; }
 }
@@ -61,6 +64,7 @@ async function refresh(): Promise<boolean> {
   if (!res.ok) { await setTokens(null, null); return false; }
   const body = await res.json();
   await setTokens(body.access_token, body.refresh_token ?? refreshToken);
+  refreshListeners.forEach((cb) => cb());
   return true;
 }
 

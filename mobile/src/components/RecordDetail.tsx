@@ -9,6 +9,7 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { authed } from '../auth';
 import { kvGet, serverIdFor } from '../db';
 import { COLOR, RADIUS, SPACE, TYPE } from '../theme';
+import { Icon } from './Icon';
 import BottomSheet from './BottomSheet';
 
 export type DetailItem = {
@@ -73,9 +74,10 @@ export default function RecordDetail({ item, onClose }: { item: DetailItem | nul
       <Row label="When" value={new Date(item.createdAt).toLocaleString()} />
       {item.sub ? <Row label="Detail" value={item.sub} /> : null}
 
-      <View style={[s.statusBanner, item.synced ? s.statusOk : s.statusPending]}>
+      <View style={[s.statusBanner, s.statusRow, item.synced ? s.statusOk : s.statusPending]}>
+        <Icon name={item.synced ? 'check' : 'pendingDrafts'} size={13} color={item.synced ? '#00887A' : '#4B5563'} />
         <Text style={[s.statusText, item.synced ? s.statusOkText : s.statusPendingText]}>
-          {item.synced ? '✓ Sent to the server' : '⏳ Not sent yet — will go out on next sync'}
+          {item.synced ? 'Sent to the server' : 'Not sent yet — will go out on next sync'}
         </Text>
       </View>
 
@@ -91,8 +93,9 @@ export default function RecordDetail({ item, onClose }: { item: DetailItem | nul
           )}
           {server && (
             <>
-              <View style={[s.statusBanner, s.statusOk]}>
-                <Text style={[s.statusText, s.statusOkText]}>✓ Confirmed on the server</Text>
+              <View style={[s.statusBanner, s.statusRow, s.statusOk]}>
+                <Icon name="check" size={13} color="#00887A" />
+                <Text style={[s.statusText, s.statusOkText]}>Confirmed on the server</Text>
               </View>
               {server.lon != null && server.lat != null && (
                 <Row label="Server coordinates" value={`${Number(server.lat).toFixed(5)}, ${Number(server.lon).toFixed(5)}`} />
@@ -104,9 +107,11 @@ export default function RecordDetail({ item, onClose }: { item: DetailItem | nul
               {server.drop_deployment && <Row label="Drop deployment" value={server.drop_deployment} />}
               {server.length_m != null && <Row label="Length" value={`${Math.round(server.length_m)} m`} />}
               {server.point_count != null && <Row label="Points" value={String(server.point_count)} />}
-              {(server.surveyed_by || server.last_edited_by) && (
-                <Row label="Attributed to" value={server.surveyed_by ?? server.last_edited_by} />
+              {server.surveyed_by && <Row label="Captured by" value={server.surveyed_by} />}
+              {server.created_at && (
+                <Row label="Captured" value={new Date(server.created_at).toLocaleString()} />
               )}
+              {server.last_edited_by && <Row label="Last edited by" value={server.last_edited_by} />}
               {server.verification_state && <Row label="Verification" value={server.verification_state} />}
               {server.updated_at && (
                 <Row label="Last updated on server" value={new Date(server.updated_at).toLocaleString()} />
@@ -126,6 +131,7 @@ const s = StyleSheet.create({
   rowLabel: { fontSize: 13, color: COLOR.text500 },
   rowValue: { fontSize: 13, fontWeight: '700', color: COLOR.text900, textAlign: 'right', flexShrink: 1, marginLeft: SPACE.sm },
   statusBanner: { borderRadius: RADIUS.sm, paddingVertical: SPACE.xs + 2, paddingHorizontal: SPACE.sm + 2, marginTop: SPACE.sm },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
   statusOk: { backgroundColor: '#E1F7F1' },
   statusPending: { backgroundColor: '#EEF0F2' },
   statusText: { fontSize: 12, fontWeight: '700' },

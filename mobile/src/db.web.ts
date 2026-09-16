@@ -11,8 +11,8 @@
 // IndexedDB's cursor/index machinery and plenty fast enough.
 
 const DB_NAME = 'geoplan';
-const DB_VERSION = 2;
-const STORES = ['outbox', 'assets', 'routes', 'kv', 'drafts'] as const;
+const DB_VERSION = 3;
+const STORES = ['outbox', 'assets', 'routes', 'kv', 'drafts', 'serverCache'] as const;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -37,6 +37,9 @@ function openDb(): Promise<IDBDatabase> {
       // Local-only, never synced — see db.ts's drafts table comment.
       if (!db.objectStoreNames.contains('drafts')) {
         db.createObjectStore('drafts', { keyPath: 'building_id' });
+      }
+      if (!db.objectStoreNames.contains('serverCache')) {
+        db.createObjectStore('serverCache', { keyPath: 'cache_key' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -234,4 +237,42 @@ export async function kvGet(k: string): Promise<string | null> {
 
 export async function kvSet(k: string, v: string) {
   await put('kv', { k, v });
+}
+
+
+export async function upsertServerFeatures(projectId: string, kind: string, fc: any) {
+  const features = Array.isArray(fc?.features) ? fc.features : [];
+  for (const f of features) {
+    const id = String(f?.properties?.id ?? '');
+    if (!id) continue;
+    await put('serverCache', {
+      cache_key: `${projectId}:${kind}:${id}`, project_id: projectId, kind, server_id: id,
+      feature: JSON.stringify(f), updated_at: String(f?.properties?.updated_at ?? new Date().toISOString()),
+    });
+  }
+}
+
+export async function listServerFeatures(projectId: string, kind?: string): Promise<any[]> {
+  const rows = (await getAll('serverCache'))
+    .filter((r) => r.project_id === projectId && (!kind || r.kind === kind))
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  return rows.map((r) => ({ ...JSON.parse(r.feature), _cache_kind: r.kind }));
+}
+
+export async function serverCacheCounts(projectId: string): Promise<Record<string, number>> {
+  const rows = (await getAll('serverCache')).filter((r) => r.project_id === projectId);
+  const out: Record<string, number> = {};
+  rows.forEach((r) => { out[r.kind] = (out[r.kind] ?? 0) + 1; });
+  return out;
+}
+
+export async function saveActiveRoute(projectId: string, draft: any | null) {
+  if (draft) await kvSet(`activeRoute:${projectId}`, JSON.stringify(draft));
+  else await del('kv', `activeRoute:${projectId}`);
+}
+
+export async function loadActiveRoute(projectId: string): Promise<any | null> {
+  const raw = await kvGet(`activeRoute:${projectId}`);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
 }

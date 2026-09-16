@@ -14,7 +14,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.models.base import Base, TimestampMixin, UUIDMixin
 
-ROUTE_TYPES = ("cable_route", "trench", "duct", "aerial", "walk", "other")
+ROUTE_TYPES = ("cable_route", "existing_fibre", "existing_duct", "proposed_duct",
+               "proposed_trench", "trench", "duct", "aerial", "aerial_route",
+               "distribution_route", "feeder_route", "site_access", "walk", "other")
 
 
 class SurveyRoute(UUIDMixin, TimestampMixin, Base):
@@ -36,6 +38,10 @@ class SurveyRoute(UUIDMixin, TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text)
 
     surveyed_by: Mapped[str | None] = mapped_column(String(200))
+    # Mirrors Manhole.last_edited_by / Building.last_edited_by — not written by
+    # anything yet (routes have no update path today), reserved so a future
+    # edit path needs no migration.
+    last_edited_by: Mapped[str | None] = mapped_column(String(200), index=True)
     survey_session_id: Mapped[uuid.UUID | None] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("survey_session.id", ondelete="SET NULL"))
     licence_class: Mapped[str] = mapped_column(String(30), nullable=False,

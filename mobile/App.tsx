@@ -7,6 +7,7 @@ import { SpaceMono_400Regular } from '@expo-google-fonts/space-mono';
 import { initDb, kvGet } from './src/db';
 import { loadApiBase } from './src/config';
 import { loadTokens, isAuthed } from './src/auth';
+import { loadCachedPermissions, refreshPermissions, clearPermissions } from './src/permissions';
 import { isBiometricLockEnabled, hasBiometricHardware } from './src/biometrics';
 import { useAutoSync } from './src/autoSync';
 import SplashScreen from './src/screens/SplashScreen';
@@ -17,13 +18,20 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import ManholeScreen from './src/screens/ManholeScreen';
 import BuildingScreen from './src/screens/BuildingScreen';
 import BuildingPhotoScreen from './src/screens/BuildingPhotoScreen';
+import RoadScreen from './src/screens/RoadScreen';
+import RouteCaptureScreen from './src/screens/RouteCaptureScreen';
 import MapScreen from './src/screens/MapScreen';
 import UploadedDataScreen from './src/screens/UploadedDataScreen';
+import ProjectDataScreen from './src/screens/ProjectDataScreen';
+import FieldActivityScreen from './src/screens/FieldActivityScreen';
+import CaptureScreen from './src/screens/CaptureScreen';
+import MoreScreen from './src/screens/MoreScreen';
 import BottomSheet from './src/components/BottomSheet';
+import BottomNav, { type TabName } from './src/components/BottomNav';
 import { COLOR } from './src/theme';
 
-type Screen = 'projects' | 'dashboard' | 'map' | 'uploaded';
-type Sheet = 'manhole' | 'building' | 'building_photo' | null;
+type Screen = 'projects' | 'app';
+type Sheet = 'manhole' | 'building' | 'building_photo' | 'street' | 'route' | null;
 
 // Keep the native splash (app.json's expo-splash-screen config) on screen
 // through font loading + the async boot sequence below, instead of it
@@ -41,7 +49,12 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
   const [screen, setScreen] = useState<Screen>('projects');
+  // The persistent 5-tab shell (Home/Map/Capture/Data/More) — only relevant
+  // once screen === 'app' (a project is picked). Replaces the old
+  // screen-enum push/pop between 'dashboard'/'map'/'uploaded'.
+  const [tab, setTab] = useState<TabName>('home');
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [morePage, setMorePage] = useState<'activity' | 'pending' | null>(null);
   // Set by the Dashboard's "Resume draft" quick action, alongside opening
   // the 'building' sheet — cleared whenever that sheet is opened normally
   // or closed, so a stale target never lingers into the next open.
@@ -66,10 +79,15 @@ export default function App() {
       await loadTokens();
       const ok = isAuthed();
       setAuthed(ok);
+      // Cached roles/permissions first, for instant offline-safe display;
+      // a fresh /auth/me follows in the background so a stale cache never
+      // blocks boot (see permissions.ts's refresh policy).
+      await loadCachedPermissions();
       if (ok) {
         const pid = await kvGet('projectId');
-        setScreen(pid ? 'dashboard' : 'projects');
+        setScreen(pid ? 'app' : 'projects');
         setLocked(await evaluateLock());
+        refreshPermissions();
       } else {
         setLocked(false);
       }
@@ -92,7 +110,10 @@ export default function App() {
       const prev = appStateRef.current;
       appStateRef.current = next;
       const cameToForeground = /inactive|background/.test(prev) && next === 'active';
-      if (cameToForeground && authed && bioLockOnRef.current) setLocked(true);
+      if (cameToForeground && authed) {
+        if (bioLockOnRef.current) setLocked(true);
+        refreshPermissions(); // roles/permissions may have changed while backgrounded
+      }
     });
     return () => sub.remove();
   }, [authed]);
@@ -116,14 +137,22 @@ export default function App() {
     setAuthed(true);
     setLocked(false);
     await evaluateLock(); // sync bioLockOnRef for future backgrounding, without re-locking right now
+    await refreshPermissions(); // fresh roles/permissions for the account that just signed in, before any screen renders
     const pid = await kvGet('projectId');
-    setScreen(pid ? 'dashboard' : 'projects');
+    setScreen(pid ? 'app' : 'projects');
+    setTab('home');
   }
 
   function handleLogout() {
     setAuthed(false);
     setLocked(false);
     bioLockOnRef.current = false;
+    clearPermissions(); // don't leave the next signed-in account seeing a stale prior account's cache
+  }
+
+  function openCapture(kind: 'manhole' | 'building' | 'building_photo' | 'street' | 'route') {
+    setResumeDraft(null);
+    setSheet(kind);
   }
 
   // Design System Vol.4.1 §12.4 "Desktop Constraint": on a wide (desktop/NOC)
@@ -147,26 +176,51 @@ export default function App() {
           <StatusBar style="light" />
           {screen === 'projects' && (
             <ProjectListScreen
-              onPicked={() => setScreen('dashboard')}
+              onPicked={() => { setScreen('app'); setTab('home'); }}
               onLogout={handleLogout}
             />
           )}
-          {screen === 'dashboard' && (
-            <DashboardScreen
-              onOpenMap={() => setScreen('map')}
-              onCapture={(kind) => { setResumeDraft(null); setSheet(kind); }}
-              onResumeDraft={(d) => { setResumeDraft(d); setSheet('building'); }}
-              onOpenUploadedData={() => setScreen('uploaded')}
-              onSwitchProject={() => setScreen('projects')}
-              onLogout={handleLogout}
-              onBioLockChanged={(on) => { bioLockOnRef.current = on; }}
-            />
-          )}
-          {screen === 'map' && (
-            <MapScreen onBack={() => setScreen('dashboard')} />
-          )}
-          {screen === 'uploaded' && (
-            <UploadedDataScreen onBack={() => setScreen('dashboard')} />
+          {screen === 'app' && (
+            <View style={{ flex: 1 }}>
+              <View style={{ flex: 1 }}>
+                {tab === 'home' && (
+                  <DashboardScreen
+                    onOpenMap={() => setTab('map')}
+                    onCapture={openCapture}
+                    onResumeDraft={(d) => { setResumeDraft(d); setSheet('building'); }}
+                    onOpenUploadedData={() => setTab('data')}
+                    onSwitchProject={() => setScreen('projects')}
+                    onLogout={handleLogout}
+                    onBioLockChanged={(on) => { bioLockOnRef.current = on; }}
+                  />
+                )}
+                {tab === 'map' && (
+                  <MapScreen onBack={() => setTab('home')} />
+                )}
+                {tab === 'capture' && (
+                  <CaptureScreen onPick={openCapture} onOpenMap={() => setTab('map')} />
+                )}
+                {tab === 'data' && (
+                  <ProjectDataScreen />
+                )}
+                {tab === 'more' && morePage === null && (
+                  <MoreScreen
+                    onOpenData={() => setTab('data')}
+                    onOpenActivity={() => setMorePage('activity')}
+                    onOpenPending={() => setMorePage('pending')}
+                    onSwitchProject={() => setScreen('projects')}
+                    onLogout={handleLogout}
+                  />
+                )}
+                {tab === 'more' && morePage === 'activity' && (
+                  <FieldActivityScreen onBack={() => setMorePage(null)} />
+                )}
+                {tab === 'more' && morePage === 'pending' && (
+                  <UploadedDataScreen onBack={() => setMorePage(null)} />
+                )}
+              </View>
+              <BottomNav active={tab} onChange={(next) => { setMorePage(null); setTab(next); }} />
+            </View>
           )}
 
           <BottomSheet visible={sheet === 'manhole'} onClose={() => setSheet(null)} title="Capture manhole">
@@ -181,6 +235,12 @@ export default function App() {
           </BottomSheet>
           <BottomSheet visible={sheet === 'building_photo'} onClose={() => setSheet(null)} title="Building photo">
             <BuildingPhotoScreen onSaved={() => setSheet(null)} />
+          </BottomSheet>
+          <BottomSheet visible={sheet === 'street'} onClose={() => setSheet(null)} title="Road / Street">
+            <RoadScreen onSaved={() => setSheet(null)} onCancel={() => setSheet(null)} />
+          </BottomSheet>
+          <BottomSheet visible={sheet === 'route'} onClose={() => setSheet(null)} title="Track Route">
+            <RouteCaptureScreen onSaved={() => setSheet(null)} onCancel={() => setSheet(null)} />
           </BottomSheet>
         </>
       )}

@@ -8,7 +8,7 @@
 import { useEffect, useRef } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import { kvGet, pendingCount } from './db';
-import { runSync } from './sync';
+import { pullChanges, runSync } from './sync';
 import { notify } from './notify';
 
 // While online, also retry on this cadence — catches anything a
@@ -28,9 +28,12 @@ export function useAutoSync(enabled: boolean) {
     async function attempt() {
       const pid = await kvGet('projectId');
       if (!pid) return; // no project picked yet — nothing to sync
-      if ((await pendingCount()) === 0) return;
       try {
-        const r = await runSync(pid);
+        const hasPending = (await pendingCount()) > 0;
+        const r = hasPending ? await runSync(pid) : { done: 0, failed: 0 };
+        // Shared field awareness must refresh even when *this device* has
+        // nothing to upload — that is how Ralph sees work John just synced.
+        if (!hasPending) await pullChanges(pid);
         if (r.done > 0) {
           notify('Synced', `Back online — sent ${r.done} update${r.done === 1 ? '' : 's'} automatically.`);
         }

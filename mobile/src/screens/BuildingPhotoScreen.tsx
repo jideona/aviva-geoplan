@@ -12,6 +12,7 @@ import { getFix, Fix } from '../gps';
 import { enqueue, saveAsset, newId } from '../db';
 import { notify } from '../notify';
 import { COLOR, SPACE, RADIUS, TYPE as TXT, MIN_TOUCH, isWeb } from '../theme';
+import { Icon } from '../components/Icon';
 import { stampCoordinates } from '../mediaStamp';
 
 export default function BuildingPhotoScreen({ onSaved }: { onSaved: () => void }) {
@@ -88,7 +89,8 @@ export default function BuildingPhotoScreen({ onSaved }: { onSaved: () => void }
       </View>
 
       <TouchableOpacity style={s.captureBtn} onPress={capture}>
-        <Text style={s.captureBtnText}>{photoUri ? '↻ Retake photo' : '+ Take photo'}</Text>
+        <Icon name={photoUri ? 'synced' : 'photo'} size={16} color={COLOR.primary700} />
+        <Text style={s.captureBtnText}>{photoUri ? 'Retake photo' : 'Take photo'}</Text>
       </TouchableOpacity>
       {photoUri && (
         <Text style={s.confirmed}>Photo captured at the coordinates above — ready to save.</Text>
@@ -109,7 +111,7 @@ const s = StyleSheet.create({
   acc: { fontSize: 14, fontWeight: '600', marginTop: 2 },
   refix: { marginTop: SPACE.sm, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: COLOR.surface100, borderRadius: RADIUS.sm, minHeight: MIN_TOUCH - 12 },
   refixText: { color: COLOR.primary700, fontWeight: '600' },
-  captureBtn: { borderWidth: 1, borderColor: COLOR.primary700, borderRadius: RADIUS.sm, padding: 14, alignItems: 'center', minHeight: MIN_TOUCH + 4, marginTop: SPACE.sm },
+  captureBtn: { borderWidth: 1, borderColor: COLOR.primary700, borderRadius: RADIUS.sm, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs + 2, minHeight: MIN_TOUCH + 4, marginTop: SPACE.sm },
   captureBtnText: { color: COLOR.primary700, fontWeight: '700', fontSize: 15 },
   confirmed: { color: COLOR.success500, fontWeight: '600', fontSize: 13, textAlign: 'center', marginTop: SPACE.sm },
   save: { backgroundColor: COLOR.primary900, borderRadius: RADIUS.sm, padding: 16, alignItems: 'center', marginTop: SPACE.lg - 2, minHeight: MIN_TOUCH + 12 },

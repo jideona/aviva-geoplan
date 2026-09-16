@@ -33,6 +33,9 @@ class BuildingPhoto(UUIDMixin, TimestampMixin, Base):
         nullable=False)
     gps_accuracy_m: Mapped[float | None] = mapped_column(Numeric(6, 2))
     surveyed_by: Mapped[str | None] = mapped_column(String(200))
+    # Mirrors Manhole.last_edited_by — not written by anything yet (photos have
+    # no update path today), reserved so a future edit path needs no migration.
+    last_edited_by: Mapped[str | None] = mapped_column(String(200), index=True)
     licence_class: Mapped[str] = mapped_column(String(30), nullable=False,
                                                default="owned")
     verification_state: Mapped[str] = mapped_column(String(30), nullable=False,

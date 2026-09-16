@@ -282,6 +282,30 @@ def linked_manholes(db: Session, project: Project, building_id: uuid.UUID) -> di
         for mid, code, mtype in rows]}
 
 
+
+def sync_geojson(db: Session, project: Project, since=None) -> dict:
+    """Compact building feed for the Survey PWA shared offline cache."""
+    q = select(Building).where(Building.project_id == project.id)
+    if since is not None:
+        q = q.where(Building.updated_at > since)
+    features = []
+    for b in db.scalars(q):
+        if b.excluded:
+            continue
+        features.append({
+            "type": "Feature", "geometry": mapping(to_shape(b.geom)),
+            "properties": {
+                "id": str(b.id), "code": b.building_code,
+                "building_type": b.building_type, "address": b.address,
+                "units_surveyed": b.units_surveyed, "condition": b.condition,
+                "verification_state": b.verification_state,
+                "last_edited_by": b.last_edited_by,
+                "created_at": b.created_at.isoformat(),
+                "updated_at": b.updated_at.isoformat(),
+            },
+        })
+    return {"type": "FeatureCollection", "features": features}
+
 def cleanup_noise(db: Session, user: User, project: Project,
                   min_area_sqm: float = 10.0, max_circularity: float = 0.88,
                   dry_run: bool = True) -> dict:

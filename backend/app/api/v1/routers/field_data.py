@@ -96,7 +96,7 @@ def premises_model(project_id: UUID, db: DbSession, user: CurrentUser) -> dict:
 @router.get("/activity")
 def activity(
     project_id: UUID, db: DbSession,
-    user=Depends(require(Permission.AUDIT_VIEW)),
+    user=Depends(require(Permission.FIELD_ACTIVITY_VIEW)),
     surveyor: str | None = None,
     entity_type: str | None = None,
     since: datetime | None = Query(default=None),
@@ -117,7 +117,7 @@ def activity(
 
 @router.get("/activity/surveyors")
 def activity_surveyors(project_id: UUID, db: DbSession,
-                       user=Depends(require(Permission.AUDIT_VIEW))) -> dict:
+                       user=Depends(require(Permission.FIELD_ACTIVITY_VIEW))) -> dict:
     """Distinct surveyors with field activity on this project, for a filter."""
     project = _project(db, user, project_id)
     return {"surveyors": field_activity_service.surveyors(db, project)}

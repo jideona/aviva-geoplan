@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { getFix, watchRoute, Fix } from '../gps';
-import { enqueue, saveAsset, saveRoute, newId, listAssets, listRoutes } from '../db';
+import { enqueue, saveAsset, saveRoute, newId, listAssets, listRoutes, kvGet, listServerFeatures } from '../db';
 import { COLOR, STATUS } from '../theme';
+import { Icon } from '../components/Icon';
 import { pinStatus } from '../pinStatus';
 import { notify } from '../notify';
 
@@ -26,14 +27,35 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const [pin, setPin] = useState<LL | null>(null);
   const [manholes, setManholes] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
+  const [streets, setStreets] = useState<any[]>([]);
   const [recording, setRecording] = useState(false);
   const [recPts, setRecPts] = useState<number[][]>([]);   // [lon,lat]
   const [busy, setBusy] = useState(false);
   const stopRef = useRef<null | (() => void)>(null);
 
   async function reload() {
-    setManholes((await listAssets()).filter((a) => a.kind === 'manhole'));
-    setRoutes(await listRoutes());
+    const all = await listAssets();
+    const localMh = all.filter((a) => a.kind === 'manhole');
+    const localRt = await listRoutes();
+    const pid = await kvGet('projectId');
+    if (!pid) { setManholes(localMh); setRoutes(localRt); return; }
+    const [serverMh, serverRt, serverSt] = await Promise.all([
+      listServerFeatures(pid, 'manholes'), listServerFeatures(pid, 'routes'), listServerFeatures(pid, 'streets'),
+    ]);
+    setManholes([
+      ...serverMh.filter((f:any)=>f.geometry?.type==='Point').map((f:any)=>({
+        client_id:`srv:${f.properties.id}`, label:f.properties.type ?? 'manhole', sub:f.properties.condition,
+        lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0], synced:1, created_at:f.properties.created_at ?? f.properties.updated_at,
+      })),
+      ...localMh.filter((x:any)=>!x.synced),
+    ]);
+    setRoutes([
+      ...serverRt.map((f:any)=>({ client_id:`srv:${f.properties.id}`, route_type:f.properties.type,
+        points:JSON.stringify(f.geometry.coordinates), length_m:f.properties.length_m ?? 0,
+        point_count:f.properties.points ?? f.geometry.coordinates.length, synced:1, created_at:f.properties.created_at ?? f.properties.updated_at })),
+      ...localRt.filter((x:any)=>!x.synced),
+    ]);
+    setStreets(serverSt);
   }
 
   useEffect(() => {
@@ -104,6 +126,14 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           return <Polyline key={r.client_id} coordinates={pts}
             strokeColor={r.synced ? COLOR.success500 : COLOR.text500} strokeWidth={4} />;
         })}
+        {streets.map((f:any) => {
+          const geom = f.geometry;
+          const lines = geom?.type === 'MultiLineString' ? geom.coordinates : geom?.type === 'LineString' ? [geom.coordinates] : [];
+          return lines.map((line:number[][], i:number) => <Polyline key={`${f.properties?.id ?? 'street'}-${i}`}
+            coordinates={line.map((p:number[]) => ({ latitude:p[1], longitude:p[0] }))}
+            strokeColor={f.properties?.verification_state === 'field_observed' ? COLOR.success500 : COLOR.text500}
+            strokeWidth={3} />);
+        })}
         {pin && <Marker coordinate={pin} pinColor={COLOR.success500} />}
         {recPts.length > 1 && <Polyline
           coordinates={recPts.map((p) => ({ latitude: p[1], longitude: p[0] }))}
@@ -111,7 +141,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       </MapView>
 
       <TouchableOpacity style={s.backBtn} onPress={onBack}>
-        <Text style={s.backIcon}>←</Text>
+        <Icon name="back" size={20} color={COLOR.primary900} />
       </TouchableOpacity>
 
       {/* Pin-drop confirm sheet */}

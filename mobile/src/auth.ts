@@ -7,6 +7,14 @@ import { getApiBase } from './config';
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
+// Subscribers notified whenever the access token is silently renewed (the
+// 401-triggered refresh-and-retry in authed(), below). permissions.ts uses
+// this to re-pull /auth/me without auth.ts needing to import it back —
+// enough time passing for the access token to expire is also a reasonable
+// moment to assume a role/permission change might not have been seen yet.
+const refreshListeners: Array<() => void> = [];
+export function onTokenRefreshed(cb: () => void) { refreshListeners.push(cb); }
+
 export async function loadTokens() {
   accessToken = await SecureStore.getItemAsync('access');
   refreshToken = await SecureStore.getItemAsync('refresh');
@@ -46,6 +54,7 @@ async function refresh(): Promise<boolean> {
   if (!res.ok) { await setTokens(null, null); return false; }
   const body = await res.json();
   await setTokens(body.access_token, body.refresh_token ?? refreshToken);
+  refreshListeners.forEach((cb) => cb());
   return true;
 }
 

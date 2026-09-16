@@ -7,17 +7,18 @@
 // way DashboardScreen groups Recent Captures.
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, Share, ActivityIndicator } from 'react-native';
-import { kvGet, listAllOutbox, retryRows, type OutboxRow } from '../db';
+import { kvGet, listAllOutbox, listDrafts, retryRows, type OutboxRow } from '../db';
 import { flush, runSync } from '../sync';
 import { notify } from '../notify';
 import { COLOR, SPACE, RADIUS, TYPE, MIN_TOUCH, isWeb } from '../theme';
+import { Icon } from '../components/Icon';
 import BottomSheet from '../components/BottomSheet';
 
 // Kinds that represent a surveyed entity — everything else in the outbox
 // (media, and the reposition/delete/exclude housekeeping ops) isn't a new
 // "record" for the header/meta counts, though it's still a real row that
 // can succeed or fail.
-const RECORD_KINDS = new Set(['manhole', 'building', 'building_photo', 'route']);
+const RECORD_KINDS = new Set(['manhole', 'building', 'building_photo', 'route', 'street']);
 
 type BatchStatus = 'synced' | 'pending' | 'failed';
 type Batch = { key: string; dayLabel: string; rows: OutboxRow[] };
@@ -46,6 +47,7 @@ function formatBytes(n: number): string {
 
 export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<OutboxRow[]>([]);
+  const [drafts, setDrafts] = useState<any[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState('Project');
   const [filter, setFilter] = useState<'all' | 'synced' | 'pending' | 'failed'>('all');
@@ -65,6 +67,7 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
 
   async function reload() {
     setRows(await listAllOutbox());
+    setDrafts(await listDrafts());
     const pid = await kvGet('projectId');
     setProjectId(pid);
     const pname = await kvGet('projectName');
@@ -171,11 +174,11 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
       <View style={s.header}>
         <View style={s.headerTop}>
           <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={s.chevron}>‹</Text>
+            <Icon name="back" size={22} color="#fff" />
           </TouchableOpacity>
-          <Text style={s.headerTitle} numberOfLines={1}>Uploaded Data</Text>
+          <Text style={s.headerTitle} numberOfLines={1}>Pending & Drafts</Text>
           <TouchableOpacity onPress={reload} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={s.reloadIcon}>⟳</Text>
+            <Icon name="synced" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
         <View style={s.summaryGrid}>
@@ -193,6 +196,13 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
           </View>
         </View>
       </View>
+
+      {drafts.length > 0 && (
+        <View style={{ marginHorizontal: SPACE.md, marginTop: SPACE.sm, backgroundColor: COLOR.neutralTint, borderRadius: RADIUS.md, padding: SPACE.sm + 4 }}>
+          <Text style={{ ...TYPE.bodyBold, color: COLOR.primary900 }}>{drafts.length} building draft{drafts.length === 1 ? '' : 's'} saved on this device</Text>
+          <Text style={{ ...TYPE.small, color: COLOR.text500, marginTop: 2 }}>Resume them from Building capture. Drafts are local and are not uploaded until submitted.</Text>
+        </View>
+      )}
 
       <View style={s.filterBar}>
         <View style={s.filterTrack}>
@@ -295,7 +305,7 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
                             <Image source={{ uri }} style={s.mediaThumb} resizeMode="cover" />
                           ) : (
                             <View style={[s.mediaThumb, s.mediaThumbFallback]}>
-                              <Text style={s.mediaThumbGlyph}>{kind === 'video' ? '▶' : '◻'}</Text>
+                              <Icon name={kind === 'video' ? 'play' : 'photo'} size={18} color={COLOR.text500} />
                             </View>
                           )}
                           {!!r.bytes && (
@@ -310,9 +320,13 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
                             r.status === 'done' ? s.mediaStatusDone
                               : r.status === 'error' ? s.mediaStatusError : s.mediaStatusPending,
                           ]}>
-                            <Text style={s.mediaStatusGlyph}>
-                              {r.status === 'done' ? '✓' : r.status === 'error' ? '!' : '•'}
-                            </Text>
+                            {r.status === 'done' ? (
+                              <Icon name="check" size={11} color="#fff" />
+                            ) : r.status === 'error' ? (
+                              <Icon name="flagged" size={11} color="#fff" />
+                            ) : (
+                              <View style={s.mediaStatusDot} />
+                            )}
                           </View>
                           {/* Manual per-photo upload — "in case for some
                               reason" the automatic/batch sync hasn't
@@ -324,7 +338,7 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
                               onPress={() => uploadOne(r)}>
                               {isUploading
                                 ? <ActivityIndicator color="#fff" size="small" />
-                                : <Text style={s.mediaUploadGlyph}>⇑</Text>}
+                                : <Icon name="uploadedData" size={15} color="#fff" />}
                             </TouchableOpacity>
                           )}
                         </View>
@@ -426,6 +440,7 @@ const s = StyleSheet.create({
   mediaStatusPending: { backgroundColor: COLOR.text500 },
   mediaStatusError: { backgroundColor: COLOR.accent500 },
   mediaStatusGlyph: { fontSize: 11, fontWeight: '700', color: '#fff', lineHeight: 13 },
+  mediaStatusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' },
   mediaUploadBtn: { position: 'absolute', bottom: 4, right: 4, width: MIN_TOUCH - 12, height: MIN_TOUCH - 12, borderRadius: (MIN_TOUCH - 12) / 2, backgroundColor: COLOR.primary900, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#fff' },
   mediaUploadGlyph: { fontSize: 15, fontWeight: '700', color: '#fff' },
   mediaOverflow: { alignItems: 'center', justifyContent: 'center', backgroundColor: COLOR.surface100 },

@@ -1,7 +1,8 @@
+from datetime import datetime
 import uuid
 
 from geoalchemy2 import Geometry
-from sqlalchemy import Boolean, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,3 +50,15 @@ class Street(UUIDMixin, TimestampMixin, Base):
     licence_class: Mapped[str] = mapped_column(String(30), nullable=False, default="owned")
     verification_state: Mapped[str] = mapped_column(
         String(30), nullable=False, default="imported")
+
+    # Field-survey attributes. Imported road geometry can exist long before a
+    # team visits it; these fields describe what a surveyor actually observed.
+    surface: Mapped[str] = mapped_column(String(30), nullable=False, default="unknown")
+    condition: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+    access: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+    width_m: Mapped[float | None] = mapped_column(Numeric(6, 2))
+    field_notes: Mapped[str | None] = mapped_column(Text)
+    surveyed_by: Mapped[str | None] = mapped_column(String(200), index=True)
+    last_edited_by: Mapped[str | None] = mapped_column(String(200), index=True)
+    assessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    field_client_id: Mapped[str | None] = mapped_column(String(64), index=True)

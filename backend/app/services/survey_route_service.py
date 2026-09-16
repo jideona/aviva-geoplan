@@ -80,6 +80,32 @@ def create(db: Session, user: User, project: Project, *, points: list,
     return _out(row)
 
 
+
+def update(db: Session, user: User, project: Project, route_id: uuid.UUID, *,
+           route_type: str | None = None, code: str | None = None,
+           notes: str | None = None) -> dict:
+    row = db.scalar(select(SurveyRoute).where(
+        SurveyRoute.id == route_id, SurveyRoute.project_id == project.id))
+    if row is None:
+        raise SurveyRouteError("Route not found.")
+    if route_type is not None and route_type not in ROUTE_TYPES:
+        raise SurveyRouteError(f"route_type must be one of {', '.join(ROUTE_TYPES)}.")
+    before = {"route_type": row.route_type, "code": row.code, "notes": row.notes}
+    if route_type is not None:
+        row.route_type = route_type
+    if code is not None:
+        row.code = code
+    if notes is not None:
+        row.notes = notes
+    row.last_edited_by = user.email
+    audit_service.record(db, actor=user, entity_type="survey_route", entity_id=row.id,
+                         action="update_route", project_id=project.id,
+                         changes=audit_service.diff(before,
+                             {"route_type": row.route_type, "code": row.code, "notes": row.notes}))
+    db.commit()
+    db.refresh(row)
+    return _out(row)
+
 def geojson(db: Session, project: Project, since=None) -> dict:
     q = select(SurveyRoute).where(SurveyRoute.project_id == project.id,
                                   SurveyRoute.excluded.is_(False))
@@ -90,6 +116,7 @@ def geojson(db: Session, project: Project, since=None) -> dict:
         "properties": {"id": str(r.id), "code": r.code, "type": r.route_type,
                        "length_m": float(r.length_m), "points": r.point_count,
                        "surveyed_by": r.surveyed_by,
+                       "last_edited_by": r.last_edited_by,
                        "created_at": r.created_at.isoformat(),
                        "updated_at": r.updated_at.isoformat()}}
         for r in db.scalars(q)]

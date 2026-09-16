@@ -5,6 +5,7 @@
 // used for map controls (GPS centre, zoom, layers).
 import { Text, TouchableOpacity, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { COLOR, ELEVATION, RADIUS, FAB_PRIMARY_COLOR, isWeb } from '../theme';
+import { Icon, type IconName } from './Icon';
 
 export function PrimaryFab({ label, onPress, disabled, style }: {
   label: string; onPress: () => void; disabled?: boolean; style?: StyleProp<ViewStyle>;
@@ -20,14 +21,14 @@ export function PrimaryFab({ label, onPress, disabled, style }: {
 }
 
 export function SecondaryFab({ icon, onPress, active, style }: {
-  icon: string; onPress: () => void; active?: boolean; style?: StyleProp<ViewStyle>;
+  icon: IconName; onPress: () => void; active?: boolean; style?: StyleProp<ViewStyle>;
 }) {
   return (
     <TouchableOpacity
       onPress={onPress} activeOpacity={0.85}
       style={[s.secondary, active && s.secondaryActive, isWeb && ({ cursor: 'pointer' } as any), style]}
     >
-      <Text style={[s.secondaryIcon, active && { color: '#fff' }]}>{icon}</Text>
+      <Icon name={icon} size={18} color={active ? '#fff' : COLOR.primary900} />
     </TouchableOpacity>
   );
 }
