@@ -11,7 +11,13 @@ const TYPES = ['handhole', 'manhole', 'joint_chamber', 'footway_box', 'other'];
 const CONDS = ['good', 'fair', 'poor', 'damaged', 'buried', 'inaccessible', 'unknown'];
 type Media = { uri: string; kind: 'photo' | 'video'; contentType: string };
 
-export default function ManholeScreen({ onSaved }: { onSaved: () => void }) {
+export default function ManholeScreen({
+  onSaved,
+  edit,
+}: {
+  onSaved: () => void;
+  edit?: any | null;
+}) {
   const [fix, setFix] = useState<Fix | null>(null);
   const [fixing, setFixing] = useState(true);
   const [type, setType] = useState('manhole');
@@ -27,7 +33,28 @@ export default function ManholeScreen({ onSaved }: { onSaved: () => void }) {
     catch (e: any) { notify('GPS', String(e?.message ?? e)); }
     finally { setFixing(false); }
   }
-  useEffect(() => { void refix(); }, []);
+  useEffect(() => {
+    if (edit) {
+      setType(edit.manhole_type ?? edit.type ?? 'manhole');
+      setCondition(edit.condition ?? 'unknown');
+      setCode(edit.code ?? '');
+      setNotes(edit.condition_notes ?? '');
+
+      if (edit.lat != null && edit.lon != null) {
+        setFix({
+          lat: Number(edit.lat),
+          lon: Number(edit.lon),
+          accuracy: Number(edit.gps_accuracy_m ?? 0),
+        });
+        setFixing(false);
+      } else {
+        void refix();
+      }
+      return;
+    }
+
+    void refix();
+  }, [edit]);
 
   async function capture(kind: 'photo' | 'video') {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -59,7 +86,55 @@ export default function ManholeScreen({ onSaved }: { onSaved: () => void }) {
     if (!fix) { notify('GPS', 'Capture a GPS fix first.'); return; }
     setSaving(true);
     try {
-      const clientId = newId('mh');
+      const clientId = newId(edit ? 'mhu' : 'mh');
+
+      if (edit?.id) {
+        await saveAsset({
+          clientId,
+          kind: 'manhole',
+          lat: fix.lat,
+          lon: fix.lon,
+          accuracy: fix.accuracy,
+          label: type,
+          sub: condition,
+        });
+
+        await enqueue({
+          clientId,
+          kind: 'manhole_update',
+          payload: {
+            manholeId: edit.id,
+            attrs: {
+              manhole_type: type,
+              condition,
+              code: code || null,
+              condition_notes: notes || null,
+              lon: fix.lon,
+              lat: fix.lat,
+            },
+          },
+        });
+
+        for (const m of media) {
+          await enqueue({
+            clientId: newId('md'),
+            kind: 'media',
+            payload: {
+              entityType: 'manhole',
+              entityId: edit.id,
+              kind: m.kind,
+              contentType: m.contentType,
+              uri: m.uri,
+              lat: fix.lat,
+              lon: fix.lon,
+            },
+          });
+        }
+
+        onSaved();
+        return;
+      }
+
       // label must stay the raw type ('manhole' | 'handhole' | ...) — it's
       // what pinShape()/pinStatus() key off to pick the map pin shape and
       // the Dashboard status pill. An entered code is still sent to and
@@ -118,7 +193,11 @@ export default function ManholeScreen({ onSaved }: { onSaved: () => void }) {
       {media.length > 0 && <Text style={s.media}>{media.length} media attached</Text>}
 
       <TouchableOpacity style={[s.save, (!fix || saving) && { opacity: 0.5 }]} onPress={save} disabled={!fix || saving}>
-        {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveText}>Save manhole (offline)</Text>}
+        {saving
+          ? <ActivityIndicator color="#fff" />
+          : <Text style={s.saveText}>
+              {edit ? 'Save chamber update' : 'Save manhole (offline)'}
+            </Text>}
       </TouchableOpacity>
     </View>
   );

@@ -15,7 +15,13 @@ import { COLOR, SPACE, RADIUS, TYPE as TXT, MIN_TOUCH, isWeb } from '../theme';
 import { Icon } from '../components/Icon';
 import { stampCoordinates } from '../mediaStamp';
 
-export default function BuildingPhotoScreen({ onSaved }: { onSaved: () => void }) {
+export default function BuildingPhotoScreen({
+  onSaved,
+  edit,
+}: {
+  onSaved: () => void;
+  edit?: any | null;
+}) {
   const [fix, setFix] = useState<Fix | null>(null);
   const [fixing, setFixing] = useState(true);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
@@ -28,7 +34,19 @@ export default function BuildingPhotoScreen({ onSaved }: { onSaved: () => void }
     catch (e: any) { notify('GPS', String(e?.message ?? e)); }
     finally { setFixing(false); }
   }
-  useEffect(() => { void refix(); }, []);
+  useEffect(() => {
+    if (edit?.lat != null && edit?.lon != null) {
+      setFix({
+        lat: Number(edit.lat),
+        lon: Number(edit.lon),
+        accuracy: Number(edit.gps_accuracy_m ?? 0),
+      });
+      setFixing(false);
+      return;
+    }
+
+    void refix();
+  }, [edit]);
 
   async function capture() {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -55,10 +73,45 @@ export default function BuildingPhotoScreen({ onSaved }: { onSaved: () => void }
   }
 
   async function save() {
-    if (!fix || !photoUri) return;
+    if (!fix || (!edit && !photoUri)) return;
     setSaving(true);
+
     try {
-      const clientId = newId('bp');
+      const clientId = newId(edit ? 'bpu' : 'bp');
+
+      if (edit?.id) {
+        await enqueue({
+          clientId,
+          kind: 'building_photo_update',
+          payload: {
+            photoId: edit.id,
+            attrs: {
+              lon: fix.lon,
+              lat: fix.lat,
+              gps_accuracy_m: Math.round(fix.accuracy * 100) / 100,
+            },
+          },
+        });
+
+        if (photoUri) {
+          await enqueue({
+            clientId: newId('md'),
+            kind: 'media',
+            payload: {
+              entityType: 'building_photo',
+              entityId: edit.id,
+              kind: 'photo',
+              contentType,
+              uri: photoUri,
+              lat: fix.lat,
+              lon: fix.lon,
+            },
+          });
+        }
+
+        onSaved();
+        return;
+      }
       await saveAsset({
         clientId, kind: 'building_photo', lat: fix.lat, lon: fix.lon,
         accuracy: fix.accuracy, label: 'building_photo',
@@ -96,9 +149,16 @@ export default function BuildingPhotoScreen({ onSaved }: { onSaved: () => void }
         <Text style={s.confirmed}>Photo captured at the coordinates above — ready to save.</Text>
       )}
 
-      <TouchableOpacity style={[s.save, (!fix || !photoUri || saving) && { opacity: 0.5 }]}
-        onPress={save} disabled={!fix || !photoUri || saving}>
-        {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveText}>Save (offline)</Text>}
+      <TouchableOpacity
+        style={[s.save, (!fix || (!edit && !photoUri) || saving) && { opacity: 0.5 }]}
+        onPress={save}
+        disabled={!fix || (!edit && !photoUri) || saving}
+      >
+        {saving
+          ? <ActivityIndicator color="#fff" />
+          : <Text style={s.saveText}>
+              {edit ? 'Save observation update' : 'Save (offline)'}
+            </Text>}
       </TouchableOpacity>
     </View>
   );

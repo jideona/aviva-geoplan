@@ -5,7 +5,7 @@
 // itself is attached — genuinely reached the server rather than trusting the
 // app's own "synced" flag alone.
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { authed } from '../auth';
 import { kvGet, serverIdFor } from '../db';
 import { COLOR, RADIUS, SPACE, TYPE } from '../theme';
@@ -34,7 +34,15 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default function RecordDetail({ item, onClose }: { item: DetailItem | null; onClose: () => void }) {
+export default function RecordDetail({
+  item,
+  onClose,
+  onEdit,
+}: {
+  item: DetailItem | null;
+  onClose: () => void;
+  onEdit?: (item: DetailItem, server: any) => void;
+}) {
   const [server, setServer] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -157,6 +165,21 @@ export default function RecordDetail({ item, onClose }: { item: DetailItem | nul
               {server.updated_at && (
                 <Row label="Last updated on server" value={new Date(server.updated_at).toLocaleString()} />
               )}
+
+              {onEdit && (
+                <TouchableOpacity
+                  style={[s.editButton, item.needsAttention && s.editButtonAttention]}
+                  onPress={() => onEdit(item, server)}
+                >
+                  <Text style={s.editButtonText}>
+                    {item.kind === 'building_photo'
+                      ? 'Update photo observation'
+                      : item.needsAttention
+                        ? 'Update field record'
+                        : 'Edit record'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </>
           )}
         </>
@@ -181,4 +204,15 @@ const s = StyleSheet.create({
   statusOkText: { color: '#00887A' },
   statusPendingText: { color: '#4B5563' },
   errorText: { fontSize: 12, color: COLOR.text500, marginTop: SPACE.xs },
+  editButton: {
+    minHeight: 48,
+    marginTop: SPACE.lg,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLOR.primary700,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACE.md,
+  },
+  editButtonAttention: { backgroundColor: COLOR.accent700 },
+  editButtonText: { ...TYPE.bodyBold, color: '#fff' },
 });

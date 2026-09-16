@@ -21,7 +21,15 @@ type NearbyStreet = {
 function hv(a:number[],b:number[]){const R=6371000,t=Math.PI/180;const dLat=(b[1]-a[1])*t,dLon=(b[0]-a[0])*t;const h=Math.sin(dLat/2)**2+Math.cos(a[1]*t)*Math.cos(b[1]*t)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
 function cachedStreetDistance(f:any, lon:number, lat:number){const g=f?.geometry;const lines=g?.type==='MultiLineString'?g.coordinates:g?.type==='LineString'?[g.coordinates]:[];let best=Infinity;for(const line of lines)for(const p of line)best=Math.min(best,hv([lon,lat],p));return best;}
 
-export default function RoadScreen({ onSaved, onCancel }: { onSaved: () => void; onCancel: () => void }) {
+export default function RoadScreen({
+  onSaved,
+  onCancel,
+  edit,
+}: {
+  onSaved: () => void;
+  onCancel: () => void;
+  edit?: any | null;
+}) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [nearby, setNearby] = useState<NearbyStreet[]>([]);
   const [selected, setSelected] = useState<NearbyStreet | null>(null);
@@ -43,6 +51,18 @@ export default function RoadScreen({ onSaved, onCancel }: { onSaved: () => void;
       const pid = await kvGet('projectId');
       setProjectId(pid);
       if (!pid) { setBusy(false); return; }
+
+      if (edit) {
+        choose({
+          ...edit,
+          id: String(edit.id),
+          code: edit.code ?? '',
+          distance_m: 0,
+        });
+        setBusy(false);
+        return;
+      }
+
       try {
         const fix = await getFix();
         let rows: NearbyStreet[] = [];
@@ -67,11 +87,16 @@ export default function RoadScreen({ onSaved, onCancel }: { onSaved: () => void;
     return () => stopRef.current?.();
   }, []);
 
-  function choose(s: NearbyStreet) {
-    setSelected(s); setRecordNew(false); setName(s.name ?? '');
-    setRoadClass(s.road_class ?? 'unknown'); setSurface(s.surface ?? 'unknown');
-    setCondition(s.condition ?? 'unknown'); setAccess(s.access ?? 'unknown');
+  function choose(s: NearbyStreet | any) {
+    setSelected(s);
+    setRecordNew(false);
+    setName(s.name ?? '');
+    setRoadClass(s.road_class ?? 'unknown');
+    setSurface(s.surface ?? 'unknown');
+    setCondition(s.condition ?? 'unknown');
+    setAccess(s.access ?? 'unknown');
     setWidth(s.width_m != null ? String(s.width_m) : '');
+    setNotes(s.field_notes ?? '');
   }
 
   async function saveExisting() {
@@ -135,7 +160,7 @@ export default function RoadScreen({ onSaved, onCancel }: { onSaved: () => void;
 
   return (
     <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
-      {!recordNew && !selected && <>
+      {!edit && !recordNew && !selected && <>
         <Text style={s.section}>NEARBY ROADS / STREETS</Text>
         <Text style={s.help}>Choose an existing road first. Only record a new road if the real road is missing from GeoPlan.</Text>
         {nearby.map((r) => (
@@ -157,9 +182,11 @@ export default function RoadScreen({ onSaved, onCancel }: { onSaved: () => void;
       {(selected || recordNew) && <>
         <View style={s.modeHeader}>
           <Text style={s.section}>{recordNew ? 'NEW ROAD GPS TRACE' : `VERIFY ${selected?.code}`}</Text>
-          <TouchableOpacity onPress={() => { stopRef.current?.(); setRecording(false); setRecordNew(false); setSelected(null); }}>
-            <Text style={s.change}>Change</Text>
-          </TouchableOpacity>
+          {!edit && (
+            <TouchableOpacity onPress={() => { stopRef.current?.(); setRecording(false); setRecordNew(false); setSelected(null); }}>
+              <Text style={s.change}>Change</Text>
+            </TouchableOpacity>
+          )}
         </View>
         {recordNew && <View style={s.recordCard}>
           <Text style={s.recordValue}>{points.length} GPS points</Text>
@@ -178,7 +205,13 @@ export default function RoadScreen({ onSaved, onCancel }: { onSaved: () => void;
         <Field label="Approx. width (m)" value={width} onChange={setWidth} placeholder="e.g. 7.5" keyboardType="decimal-pad" />
         <Field label="Field notes" value={notes} onChange={setNotes} placeholder="Access restrictions, drainage, obstacles…" multiline />
         <TouchableOpacity style={s.primary} onPress={recordNew ? finishNew : saveExisting}>
-          <Text style={s.primaryText}>{recordNew ? 'Finish & save road' : 'Save road verification'}</Text>
+          <Text style={s.primaryText}>
+            {recordNew
+              ? 'Finish & save road'
+              : edit
+                ? 'Save road update'
+                : 'Save road verification'}
+          </Text>
         </TouchableOpacity>
       </>}
       <TouchableOpacity style={s.cancel} onPress={onCancel}><Text style={s.cancelText}>Cancel</Text></TouchableOpacity>

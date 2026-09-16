@@ -33,6 +33,14 @@ export async function flush(projectId: string, opts?: {
         if (!res.ok) throw new Error(await msg(res));
         const body = await res.json();
         await mapServerId(op.client_id, body.id);
+      } else if (op.kind === 'manhole_update') {
+        const res = await authed(
+          `/api/v1/projects/${projectId}/mobile/manholes/${payload.manholeId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload.attrs ?? {}),
+          });
+        if (!res.ok) throw new Error(await msg(res));
+        await mapServerId(op.client_id, payload.manholeId);
       } else if (op.kind === 'building_photo') {
         const res = await authed(`/api/v1/projects/${projectId}/mobile/building-photos`, {
           method: 'POST', body: JSON.stringify({ ...payload, client_id: op.client_id }),
@@ -40,6 +48,14 @@ export async function flush(projectId: string, opts?: {
         if (!res.ok) throw new Error(await msg(res));
         const body = await res.json();
         await mapServerId(op.client_id, body.id);
+      } else if (op.kind === 'building_photo_update') {
+        const res = await authed(
+          `/api/v1/projects/${projectId}/mobile/building-photos/${payload.photoId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload.attrs ?? {}),
+          });
+        if (!res.ok) throw new Error(await msg(res));
+        await mapServerId(op.client_id, payload.photoId);
       } else if (op.kind === 'building') {
         const res = await authed(
           `/api/v1/projects/${projectId}/mobile/buildings/${payload.buildingId}`, {
@@ -69,6 +85,14 @@ export async function flush(projectId: string, opts?: {
         if (!res.ok) throw new Error(await msg(res));
         const body = await res.json();
         await markRouteSynced(op.client_id, body.id);
+      } else if (op.kind === 'route_update') {
+        const res = await authed(
+          `/api/v1/projects/${projectId}/mobile/routes/${payload.routeId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload.attrs ?? {}),
+          });
+        if (!res.ok) throw new Error(await msg(res));
+        await mapServerId(op.client_id, payload.routeId);
       } else if (op.kind === 'manhole_reposition') {
         // Dragging an already-synced manhole/handhole to a new spot. Needs
         // its parent's server id, same pattern as media below — if the

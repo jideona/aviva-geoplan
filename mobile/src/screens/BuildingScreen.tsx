@@ -14,8 +14,9 @@ type Media = { uri: string; kind: 'photo' | 'video'; contentType: string };
 type LinkedManhole = { id: string; code: string | null } | null;
 type NearbyManhole = { id: string; code: string | null; manhole_type: string; distance_m: number };
 
-export default function BuildingScreen({ onSaved, onCancel, resume }: {
+export default function BuildingScreen({ onSaved, onCancel, resume, edit }: {
   onSaved: () => void; onCancel: () => void;
+  edit?: any | null;
   // Set from the Dashboard's "Resume draft" quick action — jumps straight
   // to the edit form with this building's saved draft pre-loaded, skipping
   // the GPS-proximity search below (see the resume effect further down).
@@ -60,13 +61,27 @@ export default function BuildingScreen({ onSaved, onCancel, resume }: {
     setMedia((m) => [...m, { uri, kind, contentType }]);
   }
 
+  // Direct shared-record edit: skip the nearby-building picker and open
+  // the selected server record immediately with its current values.
+  useEffect(() => {
+    if (!edit) return;
+    setLoading(true);
+    (async () => {
+      try {
+        const fix = await getFix().catch(() => null);
+        if (fix) setLastFix(fix);
+        await selectBuilding(edit);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [edit]);
+
   // Auto-resume: fetch a fresh GPS fix (submitSurvey needs one for the
   // final saved position, same as findNearby below would provide) then
-  // select the target building directly — selectBuilding() already prefers
-  // the saved draft's values over server ones, so a minimal {id, code} is
-  // enough here without re-fetching the full building record.
+  // select the target building directly.
   useEffect(() => {
-    if (!resume) return;
+    if (!resume || edit) return;
     setLoading(true);
     (async () => {
       try {
@@ -92,7 +107,19 @@ export default function BuildingScreen({ onSaved, onCancel, resume }: {
 
   async function selectBuilding(b: any) {
     setPick(b);
-    setLinks([null, null]);
+
+    const existingLinks = Array.isArray(b.linked_manholes)
+      ? b.linked_manholes.slice(0, 2).map((m: any) => ({
+          id: String(m.id),
+          code: m.code ?? null,
+        }))
+      : [];
+
+    setLinks([
+      existingLinks[0] ?? null,
+      existingLinks[1] ?? null,
+    ]);
+
     setErr(null);
     // A saved draft for this building represents the surveyor's own more
     // recent, not-yet-submitted intent — prefer it over the server's
@@ -169,7 +196,12 @@ export default function BuildingScreen({ onSaved, onCancel, resume }: {
       if (drop) attrs.drop_deployment = drop;
       if (notes) attrs.notes = notes;
       const linkedIds = links.filter(Boolean).map((l) => l!.id);
-      if (linkedIds.length) attrs.linked_manhole_ids = linkedIds;
+      if (edit) {
+        // Full-replace semantics during an edit, including [] to clear links.
+        attrs.linked_manhole_ids = linkedIds;
+      } else if (linkedIds.length) {
+        attrs.linked_manhole_ids = linkedIds;
+      }
       const clientId = newId('bld');
       await saveAsset({
         clientId, kind: 'building', lat: lastFix?.lat ?? 0, lon: lastFix?.lon ?? 0,
@@ -188,11 +220,13 @@ export default function BuildingScreen({ onSaved, onCancel, resume }: {
 
   return (
     <View>
-      <TouchableOpacity style={s.find} onPress={findNearby} disabled={loading}>
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.findText}>Find buildings near me (GPS)</Text>}
-      </TouchableOpacity>
+      {!edit && (
+        <TouchableOpacity style={s.find} onPress={findNearby} disabled={loading}>
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.findText}>Find buildings near me (GPS)</Text>}
+        </TouchableOpacity>
+      )}
 
-      {!pick && near.map((b) => (
+      {!pick && !edit && near.map((b) => (
         <TouchableOpacity key={b.id} style={s.card} onPress={() => selectBuilding(b)}>
           <Text style={s.code}>{b.code || 'Unnumbered'} · {b.distance_m} m</Text>
           <Text style={s.meta}>{b.building_type} · {b.use_type}{b.address ? ` · ${b.address}` : ''}</Text>
@@ -325,12 +359,18 @@ export default function BuildingScreen({ onSaved, onCancel, resume }: {
               {savingDraft ? <ActivityIndicator color={COLOR.text900} /> : <Text style={s.draftText}>Save draft</Text>}
             </TouchableOpacity>
             <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={submitSurvey} disabled={saving || savingDraft}>
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveText}>Submit survey</Text>}
+              {saving
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={s.saveText}>
+                    {edit ? 'Save building update' : 'Submit survey'}
+                  </Text>}
             </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={() => { setPick(null); setMedia([]); }}>
-            <Text style={s.differentLink}>Pick a different building</Text>
-          </TouchableOpacity>
+          {!edit && (
+            <TouchableOpacity onPress={() => { setPick(null); setMedia([]); }}>
+              <Text style={s.differentLink}>Pick a different building</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </View>
