@@ -5,6 +5,8 @@ import * as SplashScreenNative from 'expo-splash-screen';
 import { useFonts, DMSans_400Regular, DMSans_700Bold } from '@expo-google-fonts/dm-sans';
 import { SpaceMono_400Regular } from '@expo-google-fonts/space-mono';
 import { initDb, kvGet } from './src/db';
+import { runSync } from './src/sync';
+import type { DetailItem } from './src/components/RecordDetail';
 import { loadApiBase } from './src/config';
 import { loadTokens, isAuthed } from './src/auth';
 import { loadCachedPermissions, refreshPermissions, clearPermissions } from './src/permissions';
@@ -59,6 +61,13 @@ export default function App() {
     kind?: 'buildings' | 'manholes' | 'streets' | 'routes' | 'building_photos';
     filter?: 'all' | 'mine' | 'recent' | 'attention';
   } | null>(null);
+
+  const [editTarget, setEditTarget] = useState<{
+    item: DetailItem;
+    server: any;
+  } | null>(null);
+
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
   // Set by the Dashboard's "Resume draft" quick action, alongside opening
   // the 'building' sheet — cleared whenever that sheet is opened normally
   // or closed, so a stale target never lingers into the next open.
@@ -155,8 +164,43 @@ export default function App() {
   }
 
   function openCapture(kind: 'manhole' | 'building' | 'building_photo' | 'street' | 'route') {
+    setEditTarget(null);
     setResumeDraft(null);
     setSheet(kind);
+  }
+
+  function openEditRecord(item: DetailItem, server: any) {
+    const byKind: Record<string, Sheet> = {
+      building: 'building',
+      manhole: 'manhole',
+      building_photo: 'building_photo',
+      street: 'street',
+      route: 'route',
+    };
+    const next = byKind[item.kind] ?? null;
+    if (!next) return;
+    setEditTarget({ item, server });
+    setResumeDraft(null);
+    setSheet(next);
+  }
+
+  function finishFieldSave() {
+    setSheet(null);
+    setResumeDraft(null);
+    setEditTarget(null);
+    setDataRefreshKey((v) => v + 1);
+
+    void (async () => {
+      const pid = await kvGet('projectId');
+      if (!pid) return;
+      try {
+        await runSync(pid);
+      } catch {
+        // Offline field updates stay queued safely.
+      } finally {
+        setDataRefreshKey((v) => v + 1);
+      }
+    })();
   }
 
   // Design System Vol.4.1 §12.4 "Desktop Constraint": on a wide (desktop/NOC)
@@ -211,6 +255,8 @@ export default function App() {
                   <ProjectDataScreen
                     initialTarget={dataTarget}
                     onTargetConsumed={() => setDataTarget(null)}
+                    onEditRecord={openEditRecord}
+                    refreshKey={dataRefreshKey}
                   />
                 )}
                 {tab === 'more' && morePage === null && (
@@ -233,24 +279,58 @@ export default function App() {
             </View>
           )}
 
-          <BottomSheet visible={sheet === 'manhole'} onClose={() => setSheet(null)} title="Capture manhole">
-            <ManholeScreen onSaved={() => setSheet(null)} />
-          </BottomSheet>
-          <BottomSheet visible={sheet === 'building'} onClose={() => { setSheet(null); setResumeDraft(null); }} title="Update building">
-            <BuildingScreen
-              onSaved={() => { setSheet(null); setResumeDraft(null); }}
-              onCancel={() => { setSheet(null); setResumeDraft(null); }}
-              resume={resumeDraft}
+          <BottomSheet visible={sheet === 'manhole'} onClose={() => { setSheet(null); setEditTarget(null); }}
+            title={editTarget?.item.kind === 'manhole' ? 'Update chamber' : 'Capture manhole'}>
+            <ManholeScreen
+              edit={editTarget?.item.kind === 'manhole'
+                ? { id: editTarget.item.serverId, ...editTarget.server }
+                : null}
+              onSaved={finishFieldSave}
             />
           </BottomSheet>
-          <BottomSheet visible={sheet === 'building_photo'} onClose={() => setSheet(null)} title="Building photo">
-            <BuildingPhotoScreen onSaved={() => setSheet(null)} />
+          <BottomSheet visible={sheet === 'building'}
+            onClose={() => { setSheet(null); setResumeDraft(null); setEditTarget(null); }}
+            title="Update building">
+            <BuildingScreen
+              onSaved={finishFieldSave}
+              onCancel={() => { setSheet(null); setResumeDraft(null); setEditTarget(null); }}
+              resume={resumeDraft}
+              edit={editTarget?.item.kind === 'building'
+                ? { id: editTarget.item.serverId, ...editTarget.server }
+                : null}
+            />
           </BottomSheet>
-          <BottomSheet visible={sheet === 'street'} onClose={() => setSheet(null)} title="Road / Street">
-            <RoadScreen onSaved={() => setSheet(null)} onCancel={() => setSheet(null)} />
+          <BottomSheet visible={sheet === 'building_photo'}
+            onClose={() => { setSheet(null); setEditTarget(null); }}
+            title={editTarget?.item.kind === 'building_photo' ? 'Update photo observation' : 'Building photo'}>
+            <BuildingPhotoScreen
+              edit={editTarget?.item.kind === 'building_photo'
+                ? { id: editTarget.item.serverId, ...editTarget.server }
+                : null}
+              onSaved={finishFieldSave}
+            />
           </BottomSheet>
-          <BottomSheet visible={sheet === 'route'} onClose={() => setSheet(null)} title="Track Route">
-            <RouteCaptureScreen onSaved={() => setSheet(null)} onCancel={() => setSheet(null)} />
+          <BottomSheet visible={sheet === 'street'}
+            onClose={() => { setSheet(null); setEditTarget(null); }}
+            title={editTarget?.item.kind === 'street' ? 'Update Road / Street' : 'Road / Street'}>
+            <RoadScreen
+              edit={editTarget?.item.kind === 'street'
+                ? { id: editTarget.item.serverId, ...editTarget.server }
+                : null}
+              onSaved={finishFieldSave}
+              onCancel={() => { setSheet(null); setEditTarget(null); }}
+            />
+          </BottomSheet>
+          <BottomSheet visible={sheet === 'route'}
+            onClose={() => { setSheet(null); setEditTarget(null); }}
+            title={editTarget?.item.kind === 'route' ? 'Update Survey Route' : 'Track Route'}>
+            <RouteCaptureScreen
+              edit={editTarget?.item.kind === 'route'
+                ? { id: editTarget.item.serverId, ...editTarget.server }
+                : null}
+              onSaved={finishFieldSave}
+              onCancel={() => { setSheet(null); setEditTarget(null); }}
+            />
           </BottomSheet>
         </>
       )}

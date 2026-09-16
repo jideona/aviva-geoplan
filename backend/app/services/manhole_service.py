@@ -75,7 +75,8 @@ def create(db: Session, user: User, project: Project, *, lon: float, lat: float,
 
 
 def update_condition(db: Session, user: User, project: Project,
-                     manhole_id: uuid.UUID, *, condition: str | None = None,
+                     manhole_id: uuid.UUID, *, manhole_type: str | None = None,
+                     condition: str | None = None,
                      condition_notes: str | None = None,
                      code: str | None = None,
                      lon: float | None = None, lat: float | None = None) -> dict:
@@ -87,6 +88,16 @@ def update_condition(db: Session, user: User, project: Project,
     # audit trail (and the field-activity feed built on it) can show what
     # actually changed on a reassessment rather than always "condition".
     changes: dict = {}
+    if manhole_type is not None:
+        if manhole_type not in MANHOLE_TYPES:
+            raise ManholeError(f"type must be one of {', '.join(MANHOLE_TYPES)}.")
+        if manhole_type != row.manhole_type:
+            changes["manhole_type"] = {
+                "before": row.manhole_type,
+                "after": manhole_type,
+            }
+        row.manhole_type = manhole_type
+
     if condition is not None:
         if condition not in CONDITIONS:
             raise ManholeError(f"condition must be one of {', '.join(CONDITIONS)}.")

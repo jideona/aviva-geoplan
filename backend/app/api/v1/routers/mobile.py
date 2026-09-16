@@ -49,6 +49,7 @@ class CaptureManhole(BaseModel):
 
 
 class AssessManhole(BaseModel):
+    manhole_type: str | None = None
     condition: str | None = None
     condition_notes: str | None = None
     code: str | None = None
@@ -78,9 +79,13 @@ def assess_manhole(project_id: UUID, manhole_id: UUID, payload: AssessManhole,
     project = _project(db, user, project_id)
     try:
         return manhole_service.update_condition(
-            db, user, project, manhole_id, condition=payload.condition,
-            condition_notes=payload.condition_notes, code=payload.code,
-            lon=payload.lon, lat=payload.lat)
+            db, user, project, manhole_id,
+            manhole_type=payload.manhole_type,
+            condition=payload.condition,
+            condition_notes=payload.condition_notes,
+            code=payload.code,
+            lon=payload.lon,
+            lat=payload.lat)
     except ManholeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail=str(exc)) from exc
@@ -123,6 +128,33 @@ def capture_building_photo(project_id: UUID, payload: CaptureBuildingPhoto, db: 
     except BuildingPhotoError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail=str(exc)) from exc
+
+
+class UpdateBuildingPhoto(BaseModel):
+    lon: float | None = None
+    lat: float | None = None
+    gps_accuracy_m: float | None = None
+
+
+@router.patch("/building-photos/{photo_id}")
+def update_building_photo(
+    project_id: UUID,
+    photo_id: UUID,
+    payload: UpdateBuildingPhoto,
+    db: DbSession,
+    user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT)),
+) -> dict:
+    project = _project(db, user, project_id)
+    try:
+        return building_photo_service.update(
+            db, user, project, photo_id,
+            lon=payload.lon,
+            lat=payload.lat,
+            gps_accuracy_m=payload.gps_accuracy_m)
+    except BuildingPhotoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc)) from exc
 
 
 @router.get("/building-photos.geojson")

@@ -27,9 +27,13 @@ function needsAttention(f:any){const c=String(prop(f,'condition')||''); return [
 export default function ProjectDataScreen({
   initialTarget,
   onTargetConsumed,
+  onEditRecord,
+  refreshKey,
 }: {
   initialTarget?: DataTarget | null;
   onTargetConsumed?: () => void;
+  onEditRecord?: (item: DetailItem, server: any) => void;
+  refreshKey?: number;
 }) {
   const [projectId,setProjectId]=useState<string|null>(null); const [projectName,setProjectName]=useState('Project');
   const [features,setFeatures]=useState<any[]>([]); const [counts,setCounts]=useState<Record<string,number>>({});
@@ -49,6 +53,11 @@ export default function ProjectDataScreen({
     setKindFilter(initialTarget.kind ?? null);
     onTargetConsumed?.();
   }, [initialTarget, onTargetConsumed]);
+
+  useEffect(() => {
+    if (refreshKey == null) return;
+    void reload();
+  }, [refreshKey, reload]);
   async function refresh(){if(!projectId)return; setSyncing(true); try{const n=await pullChanges(projectId); await reload(); notify('Project data', n?`Refreshed ${n} changed record${n===1?'':'s'}.`:'Project data is up to date.');}catch(e:any){notify('Sync',String(e?.message??e));}finally{setSyncing(false)}}
   const visible=useMemo(()=>features.filter(f=>{const p=f.properties||{}; if(kindFilter&&f._cache_kind!==kindFilter)return false; if(filter==='mine'&&(!email||!([p.surveyed_by,p.last_edited_by,p.name_recorded_by].filter(Boolean).includes(email))))return false; if(filter==='recent'){const d=new Date(p.updated_at||p.created_at||0).getTime(); if(Date.now()-d>30*86400000)return false;} if(filter==='attention'&&!needsAttention(f))return false; const q=query.trim().toLowerCase(); if(q&&!`${title(f)} ${subtitle(f)} ${p.surveyed_by||''} ${p.last_edited_by||''}`.toLowerCase().includes(q))return false; return true;}),[features,kindFilter,filter,email,query]);
 
@@ -170,7 +179,14 @@ export default function ProjectDataScreen({
       )}
     </ScrollView>
 
-    <RecordDetail item={detailItem} onClose={() => setDetailItem(null)} />
+    <RecordDetail
+      item={detailItem}
+      onClose={() => setDetailItem(null)}
+      onEdit={(item, server) => {
+        setDetailItem(null);
+        onEditRecord?.(item, server);
+      }}
+    />
   </View>
 }
 
