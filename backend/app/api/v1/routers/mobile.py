@@ -16,12 +16,13 @@ from app.api.deps import CurrentUser, DbSession, require, require_any
 from app.core.permissions import Permission
 from app.services import (building_edit_service, building_photo_service,
                           manhole_service, media_service, project_service,
-                          survey_route_service)
+                          street_field_service, survey_route_service)
 from app.services.building_photo_service import BuildingPhotoError
 from app.services.manhole_service import ManholeError
 from app.services.media_service import MediaError
 from app.services.project_service import ProjectError
 from app.services.survey_route_service import SurveyRouteError
+from app.services.street_field_service import StreetFieldError
 
 router = APIRouter(prefix="/projects/{project_id}/mobile", tags=["mobile survey"])
 
@@ -57,7 +58,7 @@ class AssessManhole(BaseModel):
 
 @router.post("/manholes")
 def capture_manhole(project_id: UUID, payload: CaptureManhole, db: DbSession,
-                    user=Depends(require(Permission.GIS_EDIT))) -> dict:
+                    user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
     project = _project(db, user, project_id)
     try:
         return manhole_service.create(
@@ -73,7 +74,7 @@ def capture_manhole(project_id: UUID, payload: CaptureManhole, db: DbSession,
 
 @router.patch("/manholes/{manhole_id}")
 def assess_manhole(project_id: UUID, manhole_id: UUID, payload: AssessManhole,
-                   db: DbSession, user=Depends(require(Permission.GIS_EDIT))) -> dict:
+                   db: DbSession, user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
     project = _project(db, user, project_id)
     try:
         return manhole_service.update_condition(
@@ -87,7 +88,7 @@ def assess_manhole(project_id: UUID, manhole_id: UUID, payload: AssessManhole,
 
 @router.delete("/manholes/{manhole_id}")
 def delete_manhole(project_id: UUID, manhole_id: UUID, db: DbSession,
-                   user=Depends(require(Permission.GIS_EDIT))) -> dict:
+                   user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
     """Soft-delete (excluded=True) — see manhole_service.set_excluded."""
     project = _project(db, user, project_id)
     try:
@@ -113,7 +114,7 @@ class CaptureBuildingPhoto(BaseModel):
 
 @router.post("/building-photos")
 def capture_building_photo(project_id: UUID, payload: CaptureBuildingPhoto, db: DbSession,
-                           user=Depends(require(Permission.GIS_EDIT))) -> dict:
+                           user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
     project = _project(db, user, project_id)
     try:
         return building_photo_service.create(
@@ -143,7 +144,7 @@ class CaptureRoute(BaseModel):
 
 @router.post("/routes")
 def capture_route(project_id: UUID, payload: CaptureRoute, db: DbSession,
-                  user=Depends(require(Permission.GIS_EDIT))) -> dict:
+                  user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
     project = _project(db, user, project_id)
     try:
         return survey_route_service.create(
@@ -160,6 +161,86 @@ def capture_route(project_id: UUID, payload: CaptureRoute, db: DbSession,
 def routes_geojson(project_id: UUID, db: DbSession, user: CurrentUser) -> dict:
     project = _project(db, user, project_id)
     return survey_route_service.geojson(db, project)
+
+
+class UpdateRoute(BaseModel):
+    route_type: str | None = None
+    code: str | None = None
+    notes: str | None = None
+
+
+@router.patch("/routes/{route_id}")
+def update_route(project_id: UUID, route_id: UUID, payload: UpdateRoute, db: DbSession,
+                 user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
+    project = _project(db, user, project_id)
+    try:
+        return survey_route_service.update(
+            db, user, project, route_id, route_type=payload.route_type,
+            code=payload.code, notes=payload.notes)
+    except SurveyRouteError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+# ---- Roads / streets ------------------------------------------------------- #
+class CaptureStreet(BaseModel):
+    points: list
+    name: str | None = None
+    road_class: str = "unknown"
+    surface: str = "unknown"
+    condition: str = "unknown"
+    access: str = "unknown"
+    width_m: float | None = None
+    field_notes: str | None = None
+    client_id: str | None = None
+
+
+class UpdateStreet(BaseModel):
+    name: str | None = None
+    road_class: str | None = None
+    surface: str | None = None
+    condition: str | None = None
+    access: str | None = None
+    width_m: float | None = None
+    field_notes: str | None = None
+
+
+@router.get("/streets/near")
+def streets_near(project_id: UUID, lat: float, lon: float, db: DbSession,
+                 user: CurrentUser, limit: int = Query(default=15, le=50)) -> dict:
+    project = _project(db, user, project_id)
+    return {"streets": street_field_service.nearest(db, project, lat, lon, limit)}
+
+
+@router.post("/streets")
+def capture_street(project_id: UUID, payload: CaptureStreet, db: DbSession,
+                   user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
+    project = _project(db, user, project_id)
+    try:
+        return street_field_service.create(
+            db, user, project, points=payload.points, name=payload.name,
+            road_class=payload.road_class, surface=payload.surface,
+            condition=payload.condition, access=payload.access,
+            width_m=payload.width_m, field_notes=payload.field_notes,
+            client_id=payload.client_id)
+    except StreetFieldError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.patch("/streets/{street_id}")
+def update_street(project_id: UUID, street_id: UUID, payload: UpdateStreet, db: DbSession,
+                  user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
+    project = _project(db, user, project_id)
+    try:
+        return street_field_service.update(
+            db, user, project, street_id, payload.model_dump(exclude_none=True))
+    except StreetFieldError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/streets.geojson")
+def streets_geojson(project_id: UUID, db: DbSession, user: CurrentUser) -> dict:
+    project = _project(db, user, project_id)
+    return street_field_service.geojson(db, project)
 
 
 # ---- Media (MinIO) -------------------------------------------------------- #
@@ -181,7 +262,7 @@ class ConfirmUpload(BaseModel):
 
 @router.post("/media/request-upload")
 def request_upload(project_id: UUID, payload: RequestUpload, db: DbSession,
-                   user=Depends(require(Permission.GIS_EDIT))) -> dict:
+                   user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
     project = _project(db, user, project_id)
     try:
         return media_service.request_upload(
@@ -198,7 +279,7 @@ def request_upload(project_id: UUID, payload: RequestUpload, db: DbSession,
 
 @router.post("/media/{media_id}/confirm")
 def confirm_upload(project_id: UUID, media_id: UUID, payload: ConfirmUpload,
-                   db: DbSession, user=Depends(require(Permission.GIS_EDIT))) -> dict:
+                   db: DbSession, user=Depends(require_any(Permission.FIELD_CAPTURE, Permission.GIS_EDIT))) -> dict:
     project = _project(db, user, project_id)
     try:
         return media_service.confirm_upload(db, user, project, media_id,
@@ -337,6 +418,21 @@ def record_detail(project_id: UUID, kind: str, record_id: UUID, db: DbSession,
                 "created_at": row.created_at.isoformat(),
                 "updated_at": row.updated_at.isoformat()}
 
+    if kind == "street":
+        from app.db.models.street import Street
+        row = db.get(Street, record_id)
+        if row is None or row.project_id != project.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+        return {"kind": "street", "code": row.street_code, "name": row.name,
+                "road_class": row.road_class, "surface": row.surface,
+                "condition": row.condition, "access": row.access,
+                "width_m": float(row.width_m) if row.width_m is not None else None,
+                "field_notes": row.field_notes, "surveyed_by": row.surveyed_by,
+                "last_edited_by": row.last_edited_by,
+                "verification_state": row.verification_state,
+                "created_at": row.created_at.isoformat(),
+                "updated_at": row.updated_at.isoformat()}
+
     if kind == "building":
         from app.db.models.building import Building
         row = db.get(Building, record_id)
@@ -366,7 +462,9 @@ def sync_changes(project_id: UUID, db: DbSession, user: CurrentUser,
     project = _project(db, user, project_id)
     return {
         "server_time": datetime.utcnow().isoformat() + "Z",
+        "buildings": building_edit_service.sync_geojson(db, project, since=since),
         "manholes": manhole_service.geojson(db, project, since=since),
+        "streets": street_field_service.geojson(db, project, since=since),
         "routes": survey_route_service.geojson(db, project, since=since),
         "building_photos": building_photo_service.geojson(db, project, since=since),
     }

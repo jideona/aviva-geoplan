@@ -32,13 +32,14 @@ from app.db.models.manhole import Manhole
 from app.db.models.media import MediaAsset
 from app.db.models.project import Project
 from app.db.models.survey_route import SurveyRoute
+from app.db.models.street import Street
 
 # What a field surveyor's app actually produces, plus building edits made from
 # either the office or a field device. Deliberately excludes bulk import /
 # desk-only entity types (street naming review, design runs, etc.) so the feed
 # reads as "field activity", not "everything that ever touched the database".
 FIELD_ENTITY_TYPES = ("building", "manhole", "building_photo", "survey_route",
-                      "media_asset")
+                      "street", "media_asset")
 
 # First sighting of an entity in the WHOLE audit trail (not just this page) is
 # reported as "captured"; anything after is "modified" — this is the
@@ -53,6 +54,7 @@ _GEOM_LOADERS = {
     "manhole": (Manhole, "geom"),
     "building_photo": (BuildingPhoto, "geom"),
     "survey_route": (SurveyRoute, "geom"),
+    "street": (Street, "geom"),
 }
 
 

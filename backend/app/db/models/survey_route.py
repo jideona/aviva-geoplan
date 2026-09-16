@@ -14,7 +14,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.models.base import Base, TimestampMixin, UUIDMixin
 
-ROUTE_TYPES = ("cable_route", "trench", "duct", "aerial", "walk", "other")
+ROUTE_TYPES = ("cable_route", "existing_fibre", "existing_duct", "proposed_duct",
+               "proposed_trench", "trench", "duct", "aerial", "aerial_route",
+               "distribution_route", "feeder_route", "site_access", "walk", "other")
 
 
 class SurveyRoute(UUIDMixin, TimestampMixin, Base):
