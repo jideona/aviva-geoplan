@@ -20,7 +20,7 @@ export type Permission =
   | 'export' | 'audit:view' | 'user:manage' | 'inventory:manage' | 'task:manage'
   | 'field:capture' | 'field_data:view' | 'field_activity:view' | 'qa:review';
 
-type Cached = { roles: string[]; permissions: Permission[] };
+type Cached = { email?: string; roles: string[]; permissions: Permission[] };
 
 let cache: Cached = { roles: [], permissions: [] };
 let loaded = false;
@@ -56,7 +56,7 @@ export async function refreshPermissions(): Promise<boolean> {
     const res = await authed('/api/v1/auth/me');
     if (!res.ok) return false;
     const body = await res.json();
-    cache = { roles: body.roles ?? [], permissions: body.permissions ?? [] };
+    cache = { email: body.email ?? cache.email, roles: body.roles ?? [], permissions: body.permissions ?? [] };
     loaded = true;
     await kvSet(KV_KEY, JSON.stringify(cache));
     return true;
@@ -77,6 +77,10 @@ export function hasPermission(perm: Permission): boolean {
 
 export function getRoles(): string[] {
   return cache.roles;
+}
+
+export function getCurrentEmail(): string {
+  return cache.email ?? '';
 }
 
 // Keeps the cache in step with auth.ts's transparent 401-triggered token

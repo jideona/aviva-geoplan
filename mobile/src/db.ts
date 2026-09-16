@@ -39,6 +39,15 @@ export async function initDb() {
       synced INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS server_cache (
+      cache_key TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      server_id TEXT NOT NULL,
+      feature TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_server_cache_project_kind ON server_cache(project_id, kind);
     CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
     -- Local-only, never synced: an in-progress Update Building form the
     -- surveyor chose to save without submitting (redesign's "Save draft" /
@@ -224,4 +233,50 @@ export async function kvGet(k: string): Promise<string | null> {
 }
 export async function kvSet(k: string, v: string) {
   await conn().runAsync(`INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)`, [k, v]);
+}
+
+
+export type CachedFeature = {
+  cache_key: string; project_id: string; kind: string; server_id: string;
+  feature: string; updated_at: string;
+};
+
+export async function upsertServerFeatures(projectId: string, kind: string, fc: any) {
+  const features = Array.isArray(fc?.features) ? fc.features : [];
+  for (const f of features) {
+    const id = String(f?.properties?.id ?? '');
+    if (!id) continue;
+    const updated = String(f?.properties?.updated_at ?? new Date().toISOString());
+    await conn().runAsync(
+      `INSERT OR REPLACE INTO server_cache (cache_key, project_id, kind, server_id, feature, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [`${projectId}:${kind}:${id}`, projectId, kind, id, JSON.stringify(f), updated]);
+  }
+}
+
+export async function listServerFeatures(projectId: string, kind?: string): Promise<any[]> {
+  const rows = kind
+    ? await conn().getAllAsync<CachedFeature>(
+        `SELECT * FROM server_cache WHERE project_id = ? AND kind = ? ORDER BY updated_at DESC`,
+        [projectId, kind])
+    : await conn().getAllAsync<CachedFeature>(
+        `SELECT * FROM server_cache WHERE project_id = ? ORDER BY updated_at DESC`, [projectId]);
+  return rows.map((r) => ({ ...JSON.parse(r.feature), _cache_kind: r.kind }));
+}
+
+export async function serverCacheCounts(projectId: string): Promise<Record<string, number>> {
+  const rows = await conn().getAllAsync<{ kind: string; n: number }>(
+    `SELECT kind, COUNT(*) n FROM server_cache WHERE project_id = ? GROUP BY kind`, [projectId]);
+  return Object.fromEntries(rows.map((r) => [r.kind, Number(r.n)]));
+}
+
+export async function saveActiveRoute(projectId: string, draft: any | null) {
+  if (draft) await kvSet(`activeRoute:${projectId}`, JSON.stringify(draft));
+  else await conn().runAsync(`DELETE FROM kv WHERE k = ?`, [`activeRoute:${projectId}`]);
+}
+
+export async function loadActiveRoute(projectId: string): Promise<any | null> {
+  const raw = await kvGet(`activeRoute:${projectId}`);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
 }

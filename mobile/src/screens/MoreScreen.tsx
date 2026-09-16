@@ -13,8 +13,10 @@ import { COLOR, SPACE, RADIUS, TYPE, MIN_TOUCH, isWeb } from '../theme';
 import { Icon, type IconName } from '../components/Icon';
 import { hasPermission } from '../permissions';
 
-export default function MoreScreen({ onOpenData, onSwitchProject, onLogout }: {
+export default function MoreScreen({ onOpenData, onOpenActivity, onOpenPending, onSwitchProject, onLogout }: {
   onOpenData: () => void;
+  onOpenActivity: () => void;
+  onOpenPending: () => void;
   onSwitchProject: () => void;
   onLogout: () => void;
 }) {
@@ -26,10 +28,10 @@ export default function MoreScreen({ onOpenData, onSwitchProject, onLogout }: {
       <ScrollView contentContainerStyle={s.list}>
         <Row icon="building" label="Buildings" onPress={onOpenData} />
         <Row icon="manhole" label="Manholes & Handholes" onPress={onOpenData} />
-        <Row icon="road" label="Roads & Routes" comingSoon />
-        <Row icon="fieldActivity" label="Field Activity" comingSoon />
-        <Row icon="pendingDrafts" label="Pending & Drafts" comingSoon />
-        <Row icon="flagged" label="Needs Attention" comingSoon />
+        <Row icon="road" label="Roads & Routes" onPress={onOpenData} />
+        <Row icon="fieldActivity" label="Field Activity" onPress={onOpenActivity} />
+        <Row icon="pendingDrafts" label="Pending & Drafts" onPress={onOpenPending} />
+        <Row icon="flagged" label="Needs Attention" onPress={onOpenData} />
         {hasPermission('qa:review') && (
           <Row icon="qaReview" label="QA Review" comingSoon />
         )}

@@ -25,7 +25,7 @@ import { getFix, watchRoute, Fix } from '../gps';
 import { notify } from '../notify';
 import { confirmAction } from '../confirm';
 import {
-  enqueue, saveAsset, saveRoute, newId, listAssets, listRoutes, kvGet,
+  enqueue, saveAsset, saveRoute, newId, listAssets, listRoutes, kvGet, listServerFeatures,
   deleteAsset, deleteOutbox, updateAssetPosition, updateOutboxPayload,
 } from '../db';
 import { authed } from '../auth';
@@ -288,6 +288,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const [manholes, setManholes] = useState<any[]>([]);
   const [buildingPhotos, setBuildingPhotos] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
+  const [streets, setStreets] = useState<any[]>([]);
   const [recording, setRecording] = useState(false);
   const [recPts, setRecPts] = useState<number[][]>([]);   // [lon,lat]
   const [busy, setBusy] = useState(false);
@@ -366,9 +367,30 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
 
   async function reload() {
     const all = await listAssets();
-    setManholes(all.filter((a) => a.kind === 'manhole'));
-    setBuildingPhotos(all.filter((a) => a.kind === 'building_photo'));
-    setRoutes(await listRoutes());
+    const pid = projectId ?? await kvGet('projectId');
+    const localManholes = all.filter((a) => a.kind === 'manhole');
+    const localPhotos = all.filter((a) => a.kind === 'building_photo');
+    const localRoutes = await listRoutes();
+    if (!pid) { setManholes(localManholes); setBuildingPhotos(localPhotos); setRoutes(localRoutes); return; }
+    const [serverMh, serverRoutes, serverStreets, serverPhotos] = await Promise.all([
+      listServerFeatures(pid, 'manholes'), listServerFeatures(pid, 'routes'),
+      listServerFeatures(pid, 'streets'), listServerFeatures(pid, 'building_photos'),
+    ]);
+    const mh = serverMh.map((f:any) => ({ client_id:`srv:${f.properties.id}`, server_id:f.properties.id,
+      kind:'manhole', label:f.properties.type ?? 'manhole', sub:f.properties.condition,
+      lon:f.geometry.coordinates[0], lat:f.geometry.coordinates[1], accuracy:0, synced:1,
+      created_at:f.properties.created_at ?? f.properties.updated_at }));
+    const rt = serverRoutes.map((f:any) => ({ client_id:`srv:${f.properties.id}`, server_id:f.properties.id,
+      route_type:f.properties.type, points:JSON.stringify(f.geometry.coordinates),
+      length_m:f.properties.length_m ?? 0, point_count:f.properties.points ?? f.geometry.coordinates.length,
+      synced:1, created_at:f.properties.created_at ?? f.properties.updated_at }));
+    const ph = serverPhotos.filter((f:any)=>f.geometry?.type==='Point').map((f:any)=>({ client_id:`srv:${f.properties.id}`,
+      server_id:f.properties.id, kind:'building_photo', label:'photo', lon:f.geometry.coordinates[0], lat:f.geometry.coordinates[1],
+      accuracy:0, synced:1, created_at:f.properties.created_at ?? f.properties.updated_at }));
+    setManholes([...mh, ...localManholes.filter((x:any)=>!x.synced)]);
+    setBuildingPhotos([...ph, ...localPhotos.filter((x:any)=>!x.synced)]);
+    setRoutes([...rt, ...localRoutes.filter((x:any)=>!x.synced)]);
+    setStreets(serverStreets);
   }
 
   // Initial map centre + data load (once). Prefers the project's own
@@ -561,6 +583,16 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         id: 'routes', type: 'line', source: 'routes',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-width': 4, 'line-color': COLOR.primary500 },
+      });
+      map.addSource('streets-field', { type: 'geojson', data: emptyFC() });
+      map.addLayer({
+        id: 'streets-field', type: 'line', source: 'streets-field',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-width': 3,
+          'line-color': ['case', ['==', ['get', 'verification_state'], 'field_observed'], COLOR.success500, COLOR.text500],
+          'line-opacity': 0.85,
+        },
       });
       // The pending/unsaved drop pin is a draggable DOM Marker, not a style
       // layer — see the draftMarkerRef effect below and ensureDraftMarkerStyle.
@@ -779,6 +811,13 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       })),
     });
   }, [routes, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const src = map.getSource('streets-field') as GeoJSONSource | undefined;
+    src?.setData({ type: 'FeatureCollection', features: streets } as any);
+  }, [streets, ready]);
 
   // Quick building-photo captures — house icons, view-only (see photoInspect
   // below). Separate source/layer from the manholes one above since these

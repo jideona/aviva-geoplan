@@ -18,8 +18,12 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import ManholeScreen from './src/screens/ManholeScreen';
 import BuildingScreen from './src/screens/BuildingScreen';
 import BuildingPhotoScreen from './src/screens/BuildingPhotoScreen';
+import RoadScreen from './src/screens/RoadScreen';
+import RouteCaptureScreen from './src/screens/RouteCaptureScreen';
 import MapScreen from './src/screens/MapScreen';
 import UploadedDataScreen from './src/screens/UploadedDataScreen';
+import ProjectDataScreen from './src/screens/ProjectDataScreen';
+import FieldActivityScreen from './src/screens/FieldActivityScreen';
 import CaptureScreen from './src/screens/CaptureScreen';
 import MoreScreen from './src/screens/MoreScreen';
 import BottomSheet from './src/components/BottomSheet';
@@ -27,7 +31,7 @@ import BottomNav, { type TabName } from './src/components/BottomNav';
 import { COLOR } from './src/theme';
 
 type Screen = 'projects' | 'app';
-type Sheet = 'manhole' | 'building' | 'building_photo' | null;
+type Sheet = 'manhole' | 'building' | 'building_photo' | 'street' | 'route' | null;
 
 // Keep the native splash (app.json's expo-splash-screen config) on screen
 // through font loading + the async boot sequence below, instead of it
@@ -50,6 +54,7 @@ export default function App() {
   // screen-enum push/pop between 'dashboard'/'map'/'uploaded'.
   const [tab, setTab] = useState<TabName>('home');
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [morePage, setMorePage] = useState<'activity' | 'pending' | null>(null);
   // Set by the Dashboard's "Resume draft" quick action, alongside opening
   // the 'building' sheet — cleared whenever that sheet is opened normally
   // or closed, so a stale target never lingers into the next open.
@@ -145,7 +150,7 @@ export default function App() {
     clearPermissions(); // don't leave the next signed-in account seeing a stale prior account's cache
   }
 
-  function openCapture(kind: 'manhole' | 'building' | 'building_photo') {
+  function openCapture(kind: 'manhole' | 'building' | 'building_photo' | 'street' | 'route') {
     setResumeDraft(null);
     setSheet(kind);
   }
@@ -196,17 +201,25 @@ export default function App() {
                   <CaptureScreen onPick={openCapture} onOpenMap={() => setTab('map')} />
                 )}
                 {tab === 'data' && (
-                  <UploadedDataScreen onBack={() => setTab('home')} />
+                  <ProjectDataScreen />
                 )}
-                {tab === 'more' && (
+                {tab === 'more' && morePage === null && (
                   <MoreScreen
                     onOpenData={() => setTab('data')}
+                    onOpenActivity={() => setMorePage('activity')}
+                    onOpenPending={() => setMorePage('pending')}
                     onSwitchProject={() => setScreen('projects')}
                     onLogout={handleLogout}
                   />
                 )}
+                {tab === 'more' && morePage === 'activity' && (
+                  <FieldActivityScreen onBack={() => setMorePage(null)} />
+                )}
+                {tab === 'more' && morePage === 'pending' && (
+                  <UploadedDataScreen onBack={() => setMorePage(null)} />
+                )}
               </View>
-              <BottomNav active={tab} onChange={setTab} />
+              <BottomNav active={tab} onChange={(next) => { setMorePage(null); setTab(next); }} />
             </View>
           )}
 
@@ -222,6 +235,12 @@ export default function App() {
           </BottomSheet>
           <BottomSheet visible={sheet === 'building_photo'} onClose={() => setSheet(null)} title="Building photo">
             <BuildingPhotoScreen onSaved={() => setSheet(null)} />
+          </BottomSheet>
+          <BottomSheet visible={sheet === 'street'} onClose={() => setSheet(null)} title="Road / Street">
+            <RoadScreen onSaved={() => setSheet(null)} onCancel={() => setSheet(null)} />
+          </BottomSheet>
+          <BottomSheet visible={sheet === 'route'} onClose={() => setSheet(null)} title="Track Route">
+            <RouteCaptureScreen onSaved={() => setSheet(null)} onCancel={() => setSheet(null)} />
           </BottomSheet>
         </>
       )}

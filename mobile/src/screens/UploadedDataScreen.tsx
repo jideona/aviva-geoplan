@@ -7,7 +7,7 @@
 // way DashboardScreen groups Recent Captures.
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, Share, ActivityIndicator } from 'react-native';
-import { kvGet, listAllOutbox, retryRows, type OutboxRow } from '../db';
+import { kvGet, listAllOutbox, listDrafts, retryRows, type OutboxRow } from '../db';
 import { flush, runSync } from '../sync';
 import { notify } from '../notify';
 import { COLOR, SPACE, RADIUS, TYPE, MIN_TOUCH, isWeb } from '../theme';
@@ -18,7 +18,7 @@ import BottomSheet from '../components/BottomSheet';
 // (media, and the reposition/delete/exclude housekeeping ops) isn't a new
 // "record" for the header/meta counts, though it's still a real row that
 // can succeed or fail.
-const RECORD_KINDS = new Set(['manhole', 'building', 'building_photo', 'route']);
+const RECORD_KINDS = new Set(['manhole', 'building', 'building_photo', 'route', 'street']);
 
 type BatchStatus = 'synced' | 'pending' | 'failed';
 type Batch = { key: string; dayLabel: string; rows: OutboxRow[] };
@@ -47,6 +47,7 @@ function formatBytes(n: number): string {
 
 export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<OutboxRow[]>([]);
+  const [drafts, setDrafts] = useState<any[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState('Project');
   const [filter, setFilter] = useState<'all' | 'synced' | 'pending' | 'failed'>('all');
@@ -66,6 +67,7 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
 
   async function reload() {
     setRows(await listAllOutbox());
+    setDrafts(await listDrafts());
     const pid = await kvGet('projectId');
     setProjectId(pid);
     const pname = await kvGet('projectName');
@@ -174,7 +176,7 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
           <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Icon name="back" size={22} color="#fff" />
           </TouchableOpacity>
-          <Text style={s.headerTitle} numberOfLines={1}>Uploaded Data</Text>
+          <Text style={s.headerTitle} numberOfLines={1}>Pending & Drafts</Text>
           <TouchableOpacity onPress={reload} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Icon name="synced" size={20} color="#fff" />
           </TouchableOpacity>
@@ -194,6 +196,13 @@ export default function UploadedDataScreen({ onBack }: { onBack: () => void }) {
           </View>
         </View>
       </View>
+
+      {drafts.length > 0 && (
+        <View style={{ marginHorizontal: SPACE.md, marginTop: SPACE.sm, backgroundColor: COLOR.neutralTint, borderRadius: RADIUS.md, padding: SPACE.sm + 4 }}>
+          <Text style={{ ...TYPE.bodyBold, color: COLOR.primary900 }}>{drafts.length} building draft{drafts.length === 1 ? '' : 's'} saved on this device</Text>
+          <Text style={{ ...TYPE.small, color: COLOR.text500, marginTop: 2 }}>Resume them from Building capture. Drafts are local and are not uploaded until submitted.</Text>
+        </View>
+      )}
 
       <View style={s.filterBar}>
         <View style={s.filterTrack}>

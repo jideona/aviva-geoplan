@@ -3,7 +3,7 @@
 // parent has a server id. Every create carries its client_id, so replaying a
 // queued op is idempotent — the API returns the same record, never a duplicate.
 import { authed } from './auth';
-import { pending, setStatus, mapServerId, serverIdFor, markRouteSynced } from './db';
+import { pending, setStatus, mapServerId, serverIdFor, markRouteSynced, upsertServerFeatures, kvGet, kvSet } from './db';
 
 export async function flush(projectId: string, opts?: {
   // Fires after every processed op (success or failure) — the Uploaded
@@ -51,6 +51,17 @@ export async function flush(projectId: string, opts?: {
         // to flip the locally-saved asset row to "synced" for the recent
         // captures list / map badge.
         await mapServerId(op.client_id, payload.buildingId);
+      } else if (op.kind === 'street') {
+        const res = payload.streetId
+          ? await authed(`/api/v1/projects/${projectId}/mobile/streets/${payload.streetId}`, {
+              method: 'PATCH', body: JSON.stringify(payload.attrs ?? {}),
+            })
+          : await authed(`/api/v1/projects/${projectId}/mobile/streets`, {
+              method: 'POST', body: JSON.stringify({ ...payload, client_id: op.client_id }),
+            });
+        if (!res.ok) throw new Error(await msg(res));
+        const body = await res.json();
+        await mapServerId(op.client_id, body.id);
       } else if (op.kind === 'route') {
         const res = await authed(`/api/v1/projects/${projectId}/mobile/routes`, {
           method: 'POST', body: JSON.stringify({ ...payload, client_id: op.client_id }),
@@ -140,6 +151,24 @@ export async function flush(projectId: string, opts?: {
   return { done, failed };
 }
 
+
+export async function pullChanges(projectId: string): Promise<number> {
+  const since = await kvGet(`serverSync:${projectId}`);
+  const qs = since ? `?since=${encodeURIComponent(since)}` : '';
+  const res = await authed(`/api/v1/projects/${projectId}/mobile/sync/changes${qs}`);
+  if (!res.ok) throw new Error(await msg(res));
+  const body = await res.json();
+  let count = 0;
+  for (const kind of ['buildings', 'manholes', 'streets', 'routes', 'building_photos'] as const) {
+    const fc = body[kind];
+    if (!fc) continue;
+    await upsertServerFeatures(projectId, kind, fc);
+    count += Array.isArray(fc.features) ? fc.features.length : 0;
+  }
+  if (body.server_time) await kvSet(`serverSync:${projectId}`, body.server_time);
+  return count;
+}
+
 async function msg(res: Response): Promise<string> {
   try { return (await res.json()).detail ?? `HTTP ${res.status}`; }
   catch { return `HTTP ${res.status}`; }
@@ -165,6 +194,11 @@ export function runSync(
   projectId: string, opts?: Parameters<typeof flush>[1],
 ): Promise<{ done: number; failed: number }> {
   if (inFlight) return inFlight;
-  inFlight = flush(projectId, opts).finally(() => { inFlight = null; });
+  inFlight = flush(projectId, opts)
+    .then(async (result) => {
+      try { await pullChanges(projectId); } catch { /* offline/server cache refresh is best-effort */ }
+      return result;
+    })
+    .finally(() => { inFlight = null; });
   return inFlight;
 }

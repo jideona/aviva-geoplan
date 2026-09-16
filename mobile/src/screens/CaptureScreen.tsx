@@ -11,7 +11,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { COLOR, SPACE, RADIUS, TYPE, MIN_TOUCH, isWeb } from '../theme';
 import { Icon, type IconName } from '../components/Icon';
 
-type CaptureKind = 'manhole' | 'building' | 'building_photo';
+type CaptureKind = 'manhole' | 'building' | 'building_photo' | 'street' | 'route';
 
 export default function CaptureScreen({ onPick, onOpenMap }: {
   onPick: (kind: CaptureKind) => void;
@@ -37,9 +37,9 @@ export default function CaptureScreen({ onPick, onOpenMap }: {
         <Tile icon="manhole" title="Manhole / Handhole" subtitle="Capture a chamber's location and condition"
           onPress={() => onPick('manhole')} />
         <Tile icon="road" title="Road / Street" subtitle="Record or verify street information"
-          disabled disabledNote="Coming soon" />
-        <Tile icon="route" title="Track Route" subtitle="Walk and record a survey route on the map"
-          onPress={onOpenMap} />
+          onPress={() => onPick('street')} />
+        <Tile icon="route" title="Track Route" subtitle="Walk or drive and record a survey route"
+          onPress={() => onPick('route')} />
         <Tile icon="photo" title="Photo" subtitle="Attach a photo to a building"
           onPress={() => onPick('building_photo')} />
       </View>
