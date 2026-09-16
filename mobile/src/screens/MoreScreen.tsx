@@ -1,15 +1,17 @@
 // More tab — menu list, exact row order from the design bundle: Buildings,
 // Manholes & Handholes, Roads & Routes, Field Activity, Pending & Drafts,
-// Needs Attention, QA Review (Admin only), Project, Switch Project,
-// Settings, Sign Out. Most of these rows don't have a real destination yet
-// (dedicated category lists are PR 8, Field Activity is PR 10, Pending &
-// Drafts is PR 9, QA Review is PR 12, admin gating is PR 3) — shown,
-// disabled, "Coming soon" rather than hidden, so the menu's shape matches
-// the design now. Switch Project and Sign Out are real, existing actions
-// and are wired immediately.
+// Needs Attention, QA Review, Project, Switch Project, Settings, Sign Out.
+// Most of these rows don't have a real destination yet (dedicated category
+// lists are PR 8, Field Activity is PR 10, Pending & Drafts is PR 9, QA
+// Review's actual screen is PR 12) — shown, disabled, "Coming soon" rather
+// than hidden, so the menu's shape matches the design now. QA Review itself
+// is gated on the qa:review permission (PR 3) — a surveyor without it never
+// sees the row at all, not even as a disabled stub. Switch Project and Sign
+// Out are real, existing actions and are wired immediately.
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { COLOR, SPACE, RADIUS, TYPE, MIN_TOUCH, isWeb } from '../theme';
 import { Icon, type IconName } from '../components/Icon';
+import { hasPermission } from '../permissions';
 
 export default function MoreScreen({ onOpenData, onSwitchProject, onLogout }: {
   onOpenData: () => void;
@@ -28,7 +30,9 @@ export default function MoreScreen({ onOpenData, onSwitchProject, onLogout }: {
         <Row icon="fieldActivity" label="Field Activity" comingSoon />
         <Row icon="pendingDrafts" label="Pending & Drafts" comingSoon />
         <Row icon="flagged" label="Needs Attention" comingSoon />
-        <Row icon="qaReview" label="QA Review" sublabel="Admin only" comingSoon />
+        {hasPermission('qa:review') && (
+          <Row icon="qaReview" label="QA Review" comingSoon />
+        )}
 
         <View style={s.divider} />
 

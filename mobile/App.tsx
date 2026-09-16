@@ -7,6 +7,7 @@ import { SpaceMono_400Regular } from '@expo-google-fonts/space-mono';
 import { initDb, kvGet } from './src/db';
 import { loadApiBase } from './src/config';
 import { loadTokens, isAuthed } from './src/auth';
+import { loadCachedPermissions, refreshPermissions, clearPermissions } from './src/permissions';
 import { isBiometricLockEnabled, hasBiometricHardware } from './src/biometrics';
 import { useAutoSync } from './src/autoSync';
 import SplashScreen from './src/screens/SplashScreen';
@@ -73,10 +74,15 @@ export default function App() {
       await loadTokens();
       const ok = isAuthed();
       setAuthed(ok);
+      // Cached roles/permissions first, for instant offline-safe display;
+      // a fresh /auth/me follows in the background so a stale cache never
+      // blocks boot (see permissions.ts's refresh policy).
+      await loadCachedPermissions();
       if (ok) {
         const pid = await kvGet('projectId');
         setScreen(pid ? 'app' : 'projects');
         setLocked(await evaluateLock());
+        refreshPermissions();
       } else {
         setLocked(false);
       }
@@ -99,7 +105,10 @@ export default function App() {
       const prev = appStateRef.current;
       appStateRef.current = next;
       const cameToForeground = /inactive|background/.test(prev) && next === 'active';
-      if (cameToForeground && authed && bioLockOnRef.current) setLocked(true);
+      if (cameToForeground && authed) {
+        if (bioLockOnRef.current) setLocked(true);
+        refreshPermissions(); // roles/permissions may have changed while backgrounded
+      }
     });
     return () => sub.remove();
   }, [authed]);
@@ -123,6 +132,7 @@ export default function App() {
     setAuthed(true);
     setLocked(false);
     await evaluateLock(); // sync bioLockOnRef for future backgrounding, without re-locking right now
+    await refreshPermissions(); // fresh roles/permissions for the account that just signed in, before any screen renders
     const pid = await kvGet('projectId');
     setScreen(pid ? 'app' : 'projects');
     setTab('home');
@@ -132,6 +142,7 @@ export default function App() {
     setAuthed(false);
     setLocked(false);
     bioLockOnRef.current = false;
+    clearPermissions(); // don't leave the next signed-in account seeing a stale prior account's cache
   }
 
   function openCapture(kind: 'manhole' | 'building' | 'building_photo') {

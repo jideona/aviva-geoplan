@@ -40,6 +40,16 @@ class Permission(str, Enum):
     AUDIT_VIEW = "audit:view"
     USER_MANAGE = "user:manage"
     INVENTORY_MANAGE = "inventory:manage"
+    # Mobile field-survey permissions (SRD Section 11 amendment, survey
+    # phase). Distinct from BUILDING_FIELD_UPDATE: these gate *visibility*
+    # and *capture ability* on the mobile app, not desktop building edits.
+    # FIELD_DATA_VIEW's "see everyone's project field work" scope is a base
+    # field-role capability, never admin-gated — shared awareness across
+    # surveyors is the point, not a privilege.
+    FIELD_CAPTURE = "field:capture"
+    FIELD_DATA_VIEW = "field_data:view"
+    FIELD_ACTIVITY_VIEW = "field_activity:view"
+    QA_REVIEW = "qa:review"
     # Full task CRUD + reassignment. Updating status/updates/issues on a task
     # you're personally assigned to is allowed without this permission —
     # enforced in deployment_service, not here, since it depends on the row.
@@ -56,7 +66,9 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.GIS_IMPORT, Permission.GIS_EDIT, Permission.BUILDING_EDIT,
         Permission.BUILDING_FIELD_UPDATE,
         Permission.EXPORT, Permission.AUDIT_VIEW, Permission.INVENTORY_MANAGE,
-        Permission.TASK_MANAGE,
+        Permission.TASK_MANAGE, Permission.USER_MANAGE,
+        Permission.FIELD_CAPTURE, Permission.FIELD_DATA_VIEW,
+        Permission.FIELD_ACTIVITY_VIEW, Permission.QA_REVIEW,
     },
     Role.GIS_PLANNER: {
         Permission.PROJECT_VIEW, Permission.GIS_IMPORT, Permission.GIS_EDIT,
@@ -67,11 +79,18 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.INVENTORY_MANAGE,
     },
     Role.SURVEY_COORDINATOR: {Permission.PROJECT_VIEW, Permission.BUILDING_EDIT,
-                              Permission.BUILDING_FIELD_UPDATE, Permission.TASK_MANAGE},
-    Role.FIELD_SURVEYOR: {Permission.PROJECT_VIEW, Permission.BUILDING_FIELD_UPDATE},
-    Role.SALES_SURVEYOR: {Permission.PROJECT_VIEW, Permission.BUILDING_FIELD_UPDATE},
+                              Permission.BUILDING_FIELD_UPDATE, Permission.TASK_MANAGE,
+                              Permission.FIELD_DATA_VIEW, Permission.FIELD_ACTIVITY_VIEW},
+    Role.FIELD_SURVEYOR: {Permission.PROJECT_VIEW, Permission.BUILDING_FIELD_UPDATE,
+                          Permission.FIELD_CAPTURE, Permission.FIELD_DATA_VIEW,
+                          Permission.FIELD_ACTIVITY_VIEW},
+    Role.SALES_SURVEYOR: {Permission.PROJECT_VIEW, Permission.BUILDING_FIELD_UPDATE,
+                          Permission.FIELD_CAPTURE, Permission.FIELD_DATA_VIEW,
+                          Permission.FIELD_ACTIVITY_VIEW},
     Role.QA_REVIEWER: {Permission.PROJECT_VIEW, Permission.BUILDING_EDIT,
-                       Permission.BUILDING_FIELD_UPDATE, Permission.AUDIT_VIEW},
+                       Permission.BUILDING_FIELD_UPDATE, Permission.AUDIT_VIEW,
+                       Permission.FIELD_DATA_VIEW, Permission.FIELD_ACTIVITY_VIEW,
+                       Permission.QA_REVIEW},
     Role.CONSTRUCTION_MANAGER: {Permission.PROJECT_VIEW, Permission.EXPORT,
                                 Permission.TASK_MANAGE},
     Role.CONTRACTOR: {Permission.PROJECT_VIEW},
