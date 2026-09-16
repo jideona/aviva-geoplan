@@ -55,6 +55,10 @@ export default function App() {
   const [tab, setTab] = useState<TabName>('home');
   const [sheet, setSheet] = useState<Sheet>(null);
   const [morePage, setMorePage] = useState<'activity' | 'pending' | null>(null);
+  const [dataTarget, setDataTarget] = useState<{
+    kind?: 'buildings' | 'manholes' | 'streets' | 'routes' | 'building_photos';
+    filter?: 'all' | 'mine' | 'recent' | 'attention';
+  } | null>(null);
   // Set by the Dashboard's "Resume draft" quick action, alongside opening
   // the 'building' sheet — cleared whenever that sheet is opened normally
   // or closed, so a stale target never lingers into the next open.
@@ -188,7 +192,10 @@ export default function App() {
                     onOpenMap={() => setTab('map')}
                     onCapture={openCapture}
                     onResumeDraft={(d) => { setResumeDraft(d); setSheet('building'); }}
-                    onOpenUploadedData={() => setTab('data')}
+                    onOpenUploadedData={(target) => {
+                      setDataTarget(target ?? null);
+                      setTab('data');
+                    }}
                     onSwitchProject={() => setScreen('projects')}
                     onLogout={handleLogout}
                     onBioLockChanged={(on) => { bioLockOnRef.current = on; }}
@@ -201,7 +208,10 @@ export default function App() {
                   <CaptureScreen onPick={openCapture} onOpenMap={() => setTab('map')} />
                 )}
                 {tab === 'data' && (
-                  <ProjectDataScreen />
+                  <ProjectDataScreen
+                    initialTarget={dataTarget}
+                    onTargetConsumed={() => setDataTarget(null)}
+                  />
                 )}
                 {tab === 'more' && morePage === null && (
                   <MoreScreen

@@ -18,7 +18,10 @@ export default function DashboardScreen({
   onLogout: () => void;
   onBioLockChanged?: (on: boolean) => void;
   onResumeDraft: (d: { buildingId: string; code: string | null }) => void;
-  onOpenUploadedData?: () => void;
+  onOpenUploadedData?: (target?: {
+    kind?: 'buildings' | 'manholes' | 'streets' | 'routes' | 'building_photos';
+    filter?: 'all' | 'mine' | 'recent' | 'attention';
+  }) => void;
 }) {
   const [projectId,setProjectId]=useState<string|null>(null); const [projectName,setProjectName]=useState('Project');
   const [online,setOnline]=useState(true); const [pending,setPending]=useState(0); const [syncing,setSyncing]=useState(false);
@@ -36,13 +39,149 @@ export default function DashboardScreen({
   const myBuildings=mineToday.filter(a=>a.entity_type==='building').length; const myChambers=mineToday.filter(a=>a.entity_type==='manhole').length; const myRoutes=mineToday.filter(a=>a.entity_type==='survey_route').length;
   return <View style={s.root}><View style={s.header}><View><Text style={s.title}>{projectName}</Text><View style={s.status}><View style={[s.dot,{backgroundColor:online?COLOR.success500:COLOR.error}]}/><Text style={s.statusText}>{online?'Online':'Offline'} · {pending} pending</Text></View></View><TouchableOpacity style={s.sync} onPress={sync} disabled={syncing}>{syncing?<ActivityIndicator color="#fff"/>:<Icon name="synced" size={18} color="#fff"/>}</TouchableOpacity></View>
   <ScrollView contentContainerStyle={s.body}>
-    <Text style={s.eyebrow}>FIELD PROGRESS · ALL SURVEYORS</Text><View style={s.card}><Metric icon="building" label="Buildings surveyed" value={`${surveyed.toLocaleString()} / ${buildings.length.toLocaleString()}`} /><Metric icon="manhole" label="Manholes / handholes" value={String(counts.manholes??0)} /><Metric icon="road" label="Roads verified" value={`${roadsVerified} / ${counts.streets??0}`} /><Metric icon="route" label="Routes walked" value={`${routeKm.toFixed(1)} km`} /><Metric icon="flagged" label="Needs attention" value={String(attention)} /></View>
-    <Text style={s.eyebrow}>MY WORK TODAY</Text><View style={s.three}><Mini label="Buildings" value={myBuildings}/><Mini label="Chambers" value={myChambers}/><Mini label="Routes" value={myRoutes}/></View>
-    <View style={s.sectionHead}><Text style={s.eyebrow}>RECENT ACTIVITY · PROJECT</Text><TouchableOpacity onPress={onOpenUploadedData}><Text style={s.link}>View data</Text></TouchableOpacity></View>
-    <View style={s.card}>{activity.slice(0,8).map(a=><View key={a.id} style={s.activity}><View style={s.activityDot}/><View style={{flex:1}}><Text style={s.activityActor}>{a.surveyor||'Unknown surveyor'}</Text><Text style={s.activityText}>{a.change_kind==='captured'?'Captured':'Updated'} {String(a.entity_type).replace('_',' ')}</Text></View><Text style={s.activityTime}>{new Date(a.occurred_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</Text></View>)}{!activity.length&&<Text style={s.empty}>No recent project activity cached yet.</Text>}</View>
+    <Text style={s.eyebrow}>FIELD PROGRESS · ALL SURVEYORS</Text>
+    <View style={s.card}>
+      <Metric
+        icon="building"
+        label="Buildings surveyed"
+        value={`${surveyed.toLocaleString()} / ${buildings.length.toLocaleString()}`}
+        onPress={() => onOpenUploadedData?.({ kind: 'buildings', filter: 'all' })}
+      />
+      <Metric
+        icon="manhole"
+        label="Manholes / handholes"
+        value={String(counts.manholes ?? 0)}
+        onPress={() => onOpenUploadedData?.({ kind: 'manholes', filter: 'all' })}
+      />
+      <Metric
+        icon="road"
+        label="Roads verified"
+        value={`${roadsVerified} / ${counts.streets ?? 0}`}
+        onPress={() => onOpenUploadedData?.({ kind: 'streets', filter: 'all' })}
+      />
+      <Metric
+        icon="route"
+        label="Routes walked"
+        value={`${routeKm.toFixed(1)} km`}
+        onPress={() => onOpenUploadedData?.({ kind: 'routes', filter: 'all' })}
+      />
+      <Metric
+        icon="flagged"
+        label="Needs attention"
+        value={String(attention)}
+        onPress={() => onOpenUploadedData?.({ filter: 'attention' })}
+      />
+    </View>
+
+    <Text style={s.eyebrow}>MY WORK TODAY</Text>
+    <View style={s.three}>
+      <Mini
+        label="Buildings"
+        value={myBuildings}
+        onPress={() => onOpenUploadedData?.({ kind: 'buildings', filter: 'mine' })}
+      />
+      <Mini
+        label="Chambers"
+        value={myChambers}
+        onPress={() => onOpenUploadedData?.({ kind: 'manholes', filter: 'mine' })}
+      />
+      <Mini
+        label="Routes"
+        value={myRoutes}
+        onPress={() => onOpenUploadedData?.({ kind: 'routes', filter: 'mine' })}
+      />
+    </View>
+    <View style={s.sectionHead}>
+      <Text style={s.eyebrow}>RECENT ACTIVITY · PROJECT</Text>
+      <TouchableOpacity onPress={() => onOpenUploadedData?.({ filter: 'recent' })}>
+        <Text style={s.link}>View data</Text>
+      </TouchableOpacity>
+    </View>
+
+    <View style={s.card}>
+      {activity.slice(0, 8).map((a) => {
+        const kind =
+          a.entity_type === 'building' ? 'buildings'
+          : a.entity_type === 'manhole' ? 'manholes'
+          : a.entity_type === 'street' ? 'streets'
+          : a.entity_type === 'survey_route' ? 'routes'
+          : a.entity_type === 'building_photo' ? 'building_photos'
+          : undefined;
+
+        return (
+          <TouchableOpacity
+            key={a.id}
+            style={s.activity}
+            activeOpacity={0.7}
+            onPress={() => onOpenUploadedData?.({
+              kind,
+              filter: 'recent',
+            })}
+          >
+            <View style={s.activityDot}/>
+            <View style={{flex:1}}>
+              <Text style={s.activityActor}>{a.surveyor || 'Unknown surveyor'}</Text>
+              <Text style={s.activityText}>
+                {a.change_kind === 'captured' ? 'Captured' : 'Updated'}{' '}
+                {String(a.entity_type).replace('_', ' ')}
+              </Text>
+            </View>
+            <Text style={s.activityTime}>
+              {new Date(a.occurred_at).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+      {!activity.length && (
+        <Text style={s.empty}>No recent project activity cached yet.</Text>
+      )}
+    </View>
     <Text style={s.eyebrow}>PROJECT</Text><View style={s.actions}><TouchableOpacity style={s.action} onPress={onOpenMap}><Icon name="map" size={20} color={COLOR.primary700}/><Text style={s.actionText}>Open shared field map</Text></TouchableOpacity><TouchableOpacity style={s.action} onPress={onSwitchProject}><Icon name="switchProject" size={20} color={COLOR.primary700}/><Text style={s.actionText}>Switch project</Text></TouchableOpacity></View>
   </ScrollView></View>
 }
-function Metric({icon,label,value}:{icon:IconName;label:string;value:string}){return <View style={s.metric}><Icon name={icon} size={18} color={COLOR.primary700}/><Text style={s.metricLabel}>{label}</Text><Text style={s.metricValue}>{value}</Text></View>}
-function Mini({label,value}:{label:string;value:number}){return <View style={s.mini}><Text style={s.miniValue}>{value}</Text><Text style={s.miniLabel}>{label}</Text></View>}
+function Metric({
+  icon, label, value, onPress,
+}: {
+  icon: IconName;
+  label: string;
+  value: string;
+  onPress?: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={s.metric}
+      activeOpacity={0.7}
+      onPress={onPress}
+      disabled={!onPress}
+    >
+      <Icon name={icon} size={18} color={COLOR.primary700}/>
+      <Text style={s.metricLabel}>{label}</Text>
+      <Text style={s.metricValue}>{value}</Text>
+      {onPress && <Icon name="chevronRight" size={15} color={COLOR.text500}/>}
+    </TouchableOpacity>
+  );
+}
+
+function Mini({
+  label, value, onPress,
+}: {
+  label: string;
+  value: number;
+  onPress?: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={s.mini}
+      activeOpacity={0.7}
+      onPress={onPress}
+      disabled={!onPress}
+    >
+      <Text style={s.miniValue}>{value}</Text>
+      <Text style={s.miniLabel}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
 const s=StyleSheet.create({root:{flex:1,backgroundColor:COLOR.surface100},header:{backgroundColor:COLOR.primary900,paddingTop:54,paddingBottom:SPACE.md,paddingHorizontal:SPACE.md,flexDirection:'row',justifyContent:'space-between',alignItems:'center'},title:{...TYPE.h2,fontSize:26,color:'#fff'},status:{flexDirection:'row',alignItems:'center',gap:6,marginTop:4},dot:{width:8,height:8,borderRadius:4},statusText:{...TYPE.small,color:'rgba(255,255,255,.8)'},sync:{width:44,height:44,borderRadius:RADIUS.full,backgroundColor:COLOR.primary700,alignItems:'center',justifyContent:'center'},body:{padding:SPACE.md,paddingBottom:SPACE.xl,gap:SPACE.sm},eyebrow:{...TYPE.mono,fontSize:11,letterSpacing:.5,color:COLOR.text500,fontWeight:'700',marginTop:4},card:{backgroundColor:COLOR.surface0,borderRadius:RADIUS.md,borderWidth:1,borderColor:COLOR.borderCard,padding:12},metric:{flexDirection:'row',alignItems:'center',gap:10,minHeight:39,borderBottomWidth:1,borderBottomColor:COLOR.surface100},metricLabel:{...TYPE.body,flex:1,color:COLOR.text900},metricValue:{...TYPE.mono,fontWeight:'700',color:COLOR.primary900},three:{flexDirection:'row',gap:8},mini:{flex:1,backgroundColor:COLOR.surface0,borderRadius:RADIUS.md,borderWidth:1,borderColor:COLOR.borderCard,padding:12,alignItems:'center'},miniValue:{...TYPE.h3,color:COLOR.primary900},miniLabel:{...TYPE.small,color:COLOR.text500},sectionHead:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},link:{...TYPE.small,color:COLOR.primary700,fontWeight:'700'},activity:{flexDirection:'row',gap:9,alignItems:'center',minHeight:48,borderBottomWidth:1,borderBottomColor:COLOR.surface100},activityDot:{width:8,height:8,borderRadius:4,backgroundColor:COLOR.success500},activityActor:{...TYPE.bodyBold,color:COLOR.text900,fontSize:13},activityText:{...TYPE.small,color:COLOR.text500},activityTime:{...TYPE.mono,fontSize:10,color:COLOR.text500},empty:{...TYPE.small,color:COLOR.text500,paddingVertical:12},actions:{gap:8},action:{backgroundColor:COLOR.surface0,borderRadius:RADIUS.md,borderWidth:1,borderColor:COLOR.borderCard,minHeight:50,flexDirection:'row',alignItems:'center',gap:10,paddingHorizontal:12},actionText:{...TYPE.bodyBold,color:COLOR.text900}});
